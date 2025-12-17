@@ -1,0 +1,54 @@
+name: tailo
+description: "A new Flutter project."
+
+publish_to: 'none'
+
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.8.0
+
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Fonts & UI
+  google_fonts: ^6.1.0  # For Delius font
+  flutter_svg: ^2.0.9   # For high-quality custom icons
+  lucide_icons: ^0.257.0  # Clean outline icons matching your design
+  cupertino_icons: ^1.0.8 # icons
+
+  # Functional (For future steps)
+  fl_chart: ^0.66.0     # For the Heart Rate/ECG graph
+  flutter_map: ^6.0.0   # For the Live Location map
+  shared_preferences: ^2.5.3 # For storing cache
+  image_picker: ^1.2.1       # For picking images
+  path_provider: ^2.1.2      # For finding where to save them
+  permission_handler: ^11.3.0 # For asking permission
+  share_plus: ^9.0.0 #share
+  qr_flutter: ^4.1.0 #qr
+  mobile_scanner: ^7.1.4
+
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+
+  flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.13.1
+
+flutter_launcher_icons:
+    android: "launcher_icon"
+    ios: true
+    image_path: "assets/images/appLogo.png"
+    min_sdk_android: 21
+
+flutter:
+
+
+  uses-material-design: true
+  assets:
+    - assets/images/
