@@ -1,6 +1,7 @@
 import 'dart:convert';
+import 'dart:io'; // Required for FileImage
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart'; // For Icons
+import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'pet_model.dart';
@@ -15,13 +16,12 @@ class DataService {
   String _ownerName = "Agent Handler";
   String _ownerEmail = "handler@tailo.com";
   String _ownerPassword = "TAILO-GUEST-ACCESS-KEY";
+  String _ownerImage = "assets/images/pfp.jpeg"; // Default Asset
 
   // --- GLOBAL STATE ---
   final ValueNotifier<String?> selectedPetIdNotifier = ValueNotifier(null);
   final ValueNotifier<List<Map<String, dynamic>>> remindersNotifier =
       ValueNotifier([]);
-
-  // --- COMMUNITY STATE ---
   final ValueNotifier<List<CommunityPost>> postsNotifier = ValueNotifier([]);
 
   // --- GETTERS ---
@@ -30,6 +30,7 @@ class DataService {
   String get ownerName => _ownerName;
   String get ownerEmail => _ownerEmail;
   String get ownerPassword => _ownerPassword;
+  String get ownerImage => _ownerImage; // New Getter
 
   Pet get activePet {
     if (_pets.isEmpty) {
@@ -50,6 +51,17 @@ class DataService {
     );
   }
 
+  // --- HELPER: GET IMAGE PROVIDER (Use this everywhere) ---
+  static ImageProvider getImageProvider(String path) {
+    if (path.startsWith('http')) {
+      return NetworkImage(path);
+    } else if (path.startsWith('assets')) {
+      return AssetImage(path);
+    } else {
+      return FileImage(File(path));
+    }
+  }
+
   // --- STORAGE KEYS ---
   static const String _storageKeyPets = 'tailO_pets_data';
   static const String _storageKeyReminders = 'tailO_reminders_data';
@@ -61,16 +73,16 @@ class DataService {
     final prefs = await SharedPreferences.getInstance();
     _isLoggedIn = prefs.getBool(_loginKey) ?? false;
 
+    // Load User (Now with Image)
     final userInfo = prefs.getStringList(_userKey);
-    if (userInfo != null && userInfo.length >= 3) {
-      _ownerName = userInfo[0];
-      _ownerEmail = userInfo[1];
-      _ownerPassword = userInfo[2];
-    } else if (userInfo != null && userInfo.length >= 2) {
-      _ownerName = userInfo[0];
-      _ownerEmail = userInfo[1];
+    if (userInfo != null) {
+      if (userInfo.length >= 1) _ownerName = userInfo[0];
+      if (userInfo.length >= 2) _ownerEmail = userInfo[1];
+      if (userInfo.length >= 3) _ownerPassword = userInfo[2];
+      if (userInfo.length >= 4) _ownerImage = userInfo[3]; // Load Image
     }
 
+    // Load Pets
     final String? petsData = prefs.getString(_storageKeyPets);
     if (petsData != null) {
       _pets = (jsonDecode(petsData) as List)
@@ -78,8 +90,11 @@ class DataService {
           .toList();
     }
 
-    if (_pets.isNotEmpty) selectedPetIdNotifier.value = _pets.first.id;
+    if (_pets.isNotEmpty && selectedPetIdNotifier.value == null) {
+      selectedPetIdNotifier.value = _pets.first.id;
+    }
 
+    // Load Reminders (Rest of init code...)
     final String? remindersData = prefs.getString(_storageKeyReminders);
     if (remindersData != null) {
       final List<dynamic> decoded = jsonDecode(remindersData);
@@ -111,8 +126,35 @@ class DataService {
     }
   }
 
-  // --- COMMUNITY ACTIONS ---
+  // --- USER ACTIONS ---
+  Future<void> setUserInfo({
+    required String email,
+    String? name,
+    String? password,
+    String? imagePath, // New Parameter
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    _ownerEmail = email;
+    if (password != null) _ownerPassword = password;
+    if (imagePath != null) _ownerImage = imagePath; // Update Image
 
+    if (name != null && name.isNotEmpty) {
+      _ownerName = name;
+    } else {
+      String derived = email.split('@')[0];
+      _ownerName = derived[0].toUpperCase() + derived.substring(1);
+    }
+
+    // Save 4 items now
+    await prefs.setStringList(_userKey, [
+      _ownerName,
+      _ownerEmail,
+      _ownerPassword,
+      _ownerImage,
+    ]);
+  }
+
+  // --- COMMUNITY ACTIONS ---
   void addPost(String content, {String? image}) {
     final newPost = CommunityPost(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -127,14 +169,11 @@ class DataService {
     postsNotifier.value = [newPost, ...postsNotifier.value];
   }
 
-  // NEW: Toggle Like Status
   void togglePostLike(String postId) {
     final List<CommunityPost> currentPosts = List.from(postsNotifier.value);
     final index = currentPosts.indexWhere((p) => p.id == postId);
-
     if (index != -1) {
       final post = currentPosts[index];
-      // Create new copy with updated stats
       currentPosts[index] = CommunityPost(
         id: post.id,
         author: post.author,
@@ -143,17 +182,15 @@ class DataService {
         postImage: post.postImage,
         likes: post.isLiked ? post.likes - 1 : post.likes + 1,
         comments: post.comments,
-        isLiked: !post.isLiked, // Flip state
+        isLiked: !post.isLiked,
       );
-      postsNotifier.value = currentPosts; // Trigger UI update
+      postsNotifier.value = currentPosts;
     }
   }
 
-  // NEW: Add Comment (Increments count)
   void addPostComment(String postId) {
     final List<CommunityPost> currentPosts = List.from(postsNotifier.value);
     final index = currentPosts.indexWhere((p) => p.id == postId);
-
     if (index != -1) {
       final post = currentPosts[index];
       currentPosts[index] = CommunityPost(
@@ -163,44 +200,48 @@ class DataService {
         content: post.content,
         postImage: post.postImage,
         likes: post.likes,
-        comments: post.comments + 1, // Increment
+        comments: post.comments + 1,
         isLiked: post.isLiked,
       );
       postsNotifier.value = currentPosts;
     }
   }
 
-  // --- USER ACTIONS ---
-  Future<void> setUserInfo({
-    required String email,
-    String? name,
-    String? password,
-  }) async {
-    final prefs = await SharedPreferences.getInstance();
-    _ownerEmail = email;
-    if (password != null) _ownerPassword = password;
-    if (name != null && name.isNotEmpty) {
-      _ownerName = name;
-    } else {
-      String derived = email.split('@')[0];
-      _ownerName = derived[0].toUpperCase() + derived.substring(1);
-    }
-    await prefs.setStringList(_userKey, [
-      _ownerName,
-      _ownerEmail,
-      _ownerPassword,
-    ]);
-  }
-
+  // --- STANDARD ACTIONS (Login, Pets, etc.) ---
   Future<void> setLoginState(bool status) async {
     final prefs = await SharedPreferences.getInstance();
     _isLoggedIn = status;
     await prefs.setBool(_loginKey, status);
   }
 
-  Future<void> logout() async => await setLoginState(false);
+  // --- UPDATED LOGOUT ACTION ---
+  Future<void> logout() async {
+    final prefs = await SharedPreferences.getInstance();
 
-  // --- MEDICAL RECORD ACTIONS ---
+    // 1. Wipe Storage (Persistent Data)
+    await prefs.remove(_loginKey);
+    await prefs.remove(_userKey);
+    await prefs.remove(_storageKeyPets);
+    await prefs.remove(_storageKeyReminders);
+    // Note: In a real app, you would also remove the 'auth_token' here.
+
+    // 2. Wipe Memory (RAM Data)
+    _isLoggedIn = false;
+    _ownerName = "Agent Handler";
+    _ownerEmail = "handler@tailo.com";
+    _ownerPassword = "";
+    _ownerImage = "assets/images/pfp.jpeg";
+
+    _pets.clear();
+    selectedPetIdNotifier.value = null;
+    remindersNotifier.value = [];
+
+    // Optional: Keep community posts if they are public, or clear them if private
+    // postsNotifier.value = [];
+
+    debugPrint("App Cache Cleared. Session Ended.");
+  }
+
   Future<void> addMedicalRecord(String petId, MedicalRecord record) async {
     final index = _pets.indexWhere((p) => p.id == petId);
     if (index != -1) {
@@ -239,7 +280,6 @@ class DataService {
     }
   }
 
-  // --- REMINDER ACTIONS ---
   void addReminder(Map<String, dynamic> item) {
     remindersNotifier.value = List.from(remindersNotifier.value)
       ..insert(0, item);
@@ -260,7 +300,6 @@ class DataService {
     _saveReminders();
   }
 
-  // --- PET ACTIONS ---
   void switchPet(String id) => selectedPetIdNotifier.value = id;
 
   Future<void> addPet(Pet pet) async {
@@ -277,7 +316,6 @@ class DataService {
     await _savePets();
   }
 
-  // --- NEW: TOGGLE CONNECTION ---
   Future<void> setPetConnection(String petId, bool status) async {
     final index = _pets.indexWhere((p) => p.id == petId);
     if (index != -1) {
@@ -304,9 +342,7 @@ class DataService {
     }
   }
 
-  // --- DEMO DATA ---
   Future<void> loadDemoData() async {
-    // Add Demo Posts with Images (Using Lorem Picsum for demo)
     if (postsNotifier.value.isEmpty) {
       postsNotifier.value = [
         CommunityPost(
@@ -314,7 +350,7 @@ class DataService {
           author: "Ved k",
           timestamp: DateTime.now().subtract(Duration(hours: 2)),
           content: "Look at him go! 🚀",
-          postImage: "https://placedog.net/640/480?random", // Mock Image
+          postImage: "https://placedog.net/640/480?random",
           likes: 45,
           comments: 12,
         ),
@@ -332,15 +368,12 @@ class DataService {
           author: "Vedu Bhai",
           timestamp: DateTime.now().subtract(Duration(days: 1)),
           content: "Ready for the adventure! 🏞️",
-          // No image for this one to test layout
           likes: 67,
           comments: 8,
         ),
       ];
     }
-
     if (_pets.isNotEmpty) return;
-
     final rex = Pet(
       id: "#12450",
       name: "Rex",
@@ -401,13 +434,11 @@ class DataService {
         ),
       ],
     );
-
     _pets.addAll([rex, luna]);
     selectedPetIdNotifier.value = _pets.first.id;
     await _savePets();
   }
 
-  // --- PERSISTENCE HELPERS ---
   Future<void> _saveReminders() async {
     final prefs = await SharedPreferences.getInstance();
     final data = remindersNotifier.value

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'theme.dart';
 import 'support_pages.dart'; // Import the new pages
+import 'brand_footer.dart';
 
 class TipsPage extends StatefulWidget {
   const TipsPage({super.key});
@@ -328,6 +329,13 @@ class _TipsPageState extends State<TipsPage> {
                   context,
                   MaterialPageRoute(builder: (_) => const DeviceLogPage()),
                 ),
+              ),
+              const SizedBox(height: 16),
+
+              // ADD FOOTER HERE
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 20.0),
+                child: BrandFooter(),
               ),
               const SizedBox(height: 40),
             ],

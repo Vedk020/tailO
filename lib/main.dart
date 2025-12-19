@@ -15,10 +15,9 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   try {
-    await DataService().init(); // Try to load data
+    await DataService().init(); // Initialize Data (Load from Cache/Prefs)
   } catch (e) {
-    print("Error loading data: $e");
-    // Optionally clear bad data here if needed, or just start with empty state
+    debugPrint("Error loading data: $e");
   }
 
   runApp(const TailOApp());
@@ -29,7 +28,7 @@ class TailOApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Decide start screen based on login state
+    // Check login state to decide starting screen
     final bool isLoggedIn = DataService().isLoggedIn;
 
     return ValueListenableBuilder<ThemeMode>(
@@ -49,7 +48,6 @@ class TailOApp extends StatelessWidget {
   }
 }
 
-// ... (Rest of MainScaffold and CurvedNavBarPainter remains exactly the same)
 class MainScaffold extends StatefulWidget {
   const MainScaffold({super.key});
   @override
@@ -57,7 +55,7 @@ class MainScaffold extends StatefulWidget {
 }
 
 class _MainScaffoldState extends State<MainScaffold> {
-  int _currentIndex = 2;
+  int _currentIndex = 2; // Default to Overview (Center)
   late final PageController _pageController;
 
   final List<Widget> _screens = const [
@@ -92,6 +90,7 @@ class _MainScaffoldState extends State<MainScaffold> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+
     return Scaffold(
       appBar: PreferredSize(
         preferredSize: const Size.fromHeight(70),
@@ -117,14 +116,22 @@ class _MainScaffoldState extends State<MainScaffold> {
                 ),
               ),
               const Spacer(),
+              // Scan Button (Placeholder for backend integration)
               IconButton(
                 icon: Icon(
                   LucideIcons.scanLine,
                   size: 22,
                   color: theme.iconTheme.color,
                 ),
-                onPressed: () {},
+                onPressed: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text("QR Scanner ready for integration!"),
+                    ),
+                  );
+                },
               ),
+              // Settings Button
               IconButton(
                 icon: Icon(
                   LucideIcons.settings,
@@ -135,14 +142,17 @@ class _MainScaffoldState extends State<MainScaffold> {
                   Navigator.push(
                     context,
                     MaterialPageRoute(builder: (_) => const SettingsPage()),
-                  );
+                  ).then((_) => setState(() {})); // Refresh state on return
                 },
               ),
               const SizedBox(width: 8),
-              const CircleAvatar(
+              // User Avatar (Dynamic)
+              CircleAvatar(
                 radius: 18,
                 backgroundColor: TailOColors.darkCard,
-                backgroundImage: AssetImage('assets/images/pfp.jpeg'),
+                backgroundImage: DataService.getImageProvider(
+                  DataService().ownerImage,
+                ),
               ),
             ],
           ),
@@ -183,7 +193,7 @@ class _MainScaffoldState extends State<MainScaffold> {
                         children: [
                           _navItem(LucideIcons.lightbulb, "Tips", 0),
                           _navItem(LucideIcons.users, "Community", 1),
-                          const SizedBox(width: 80),
+                          const SizedBox(width: 80), // Space for center button
                           _navItem(LucideIcons.heartPulse, "Health", 3),
                           _navItem(LucideIcons.user, "Profile", 4),
                         ],

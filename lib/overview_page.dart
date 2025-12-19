@@ -1,9 +1,11 @@
+import 'dart:ui'; // Required for ImageFilter
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'theme.dart';
 import 'data_service.dart';
 import 'signup_flow.dart';
 import 'reminders_page.dart';
+import 'brand_footer.dart'; // Ensure this is imported
 
 class OverviewPage extends StatefulWidget {
   const OverviewPage({super.key});
@@ -13,6 +15,30 @@ class OverviewPage extends StatefulWidget {
 }
 
 class _OverviewPageState extends State<OverviewPage> {
+  bool _isPairing = false; // Local state for loading spinner
+
+  // --- SIMULATE PAIRING ---
+  void _pairDevice(String petId) async {
+    setState(() => _isPairing = true);
+
+    // Fake delay for "Searching..."
+    await Future.delayed(const Duration(seconds: 2));
+
+    // Update Data
+    await DataService().setPetConnection(petId, true);
+
+    setState(() => _isPairing = false);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("TailO Belt Connected Successfully!"),
+          backgroundColor: Colors.green,
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -126,17 +152,20 @@ class _OverviewPageState extends State<OverviewPage> {
                 ),
               ),
 
-              // Hero Device Section
+              // ================= HERO DEVICE SECTION =================
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.only(top: 10, bottom: 30),
                 child: Column(
                   children: [
+                    // DEVICE IMAGE CONTAINER
                     SizedBox(
                       height: 200,
+                      width: MediaQuery.of(context).size.width * 0.85,
                       child: Stack(
                         alignment: Alignment.center,
                         children: [
+                          // 1. The Belt Image (Static Asset)
                           Positioned(
                             bottom: 0,
                             child: Image.asset(
@@ -146,6 +175,91 @@ class _OverviewPageState extends State<OverviewPage> {
                               width: MediaQuery.of(context).size.width * 0.85,
                             ),
                           ),
+
+                          // 2. BLUR OVERLAY (Only if Disconnected)
+                          if (!activePet.isConnected)
+                            Positioned.fill(
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(20),
+                                child: BackdropFilter(
+                                  filter: ImageFilter.blur(
+                                    sigmaX: 4,
+                                    sigmaY: 4,
+                                  ),
+                                  child: Container(
+                                    color: theme.scaffoldBackgroundColor
+                                        .withValues(alpha: 0.1),
+                                    alignment: Alignment.center,
+                                    child: _isPairing
+                                        // Loading State
+                                        ? Container(
+                                            padding: const EdgeInsets.all(12),
+                                            decoration: BoxDecoration(
+                                              color: Colors.black54,
+                                              borderRadius:
+                                                  BorderRadius.circular(30),
+                                            ),
+                                            child: const Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                SizedBox(
+                                                  width: 16,
+                                                  height: 16,
+                                                  child:
+                                                      CircularProgressIndicator(
+                                                        strokeWidth: 2,
+                                                        color: Colors.white,
+                                                      ),
+                                                ),
+                                                SizedBox(width: 12),
+                                                Text(
+                                                  "Searching...",
+                                                  style: TextStyle(
+                                                    color: Colors.white,
+                                                    fontWeight: FontWeight.bold,
+                                                    fontSize: 12,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          )
+                                        // Pair Button
+                                        : ElevatedButton.icon(
+                                            onPressed: () =>
+                                                _pairDevice(activePet.id),
+                                            icon: const Icon(
+                                              LucideIcons.bluetooth,
+                                              color: Colors.white,
+                                              size: 18,
+                                            ),
+                                            label: const Text(
+                                              "Pair Device",
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                color: Colors.white,
+                                              ),
+                                            ),
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor:
+                                                  TailOColors.coral,
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 24,
+                                                    vertical: 12,
+                                                  ),
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(30),
+                                              ),
+                                              elevation: 8,
+                                              shadowColor: TailOColors.coral
+                                                  .withValues(alpha: 0.5),
+                                            ),
+                                          ),
+                                  ),
+                                ),
+                              ),
+                            ),
                         ],
                       ),
                     ),
@@ -163,24 +277,33 @@ class _OverviewPageState extends State<OverviewPage> {
                     Column(
                       children: [
                         const SizedBox(height: 10),
-                        BatteryIndicator(battery: activePet.battery),
-                        const SizedBox(height: 6),
-                        Text(
-                          activePet.isConnected
-                              ? "Updated 2 min ago"
-                              : "Last synced 5 hours ago",
-                          style: const TextStyle(
-                            color: Color(0xFF4A4A4E),
-                            fontSize: 11,
+                        if (activePet.isConnected) ...[
+                          BatteryIndicator(battery: activePet.battery),
+                          const SizedBox(height: 6),
+                          const Text(
+                            "Updated 2 min ago",
+                            style: TextStyle(
+                              color: Color(0xFF4A4A4E),
+                              fontSize: 11,
+                            ),
                           ),
-                        ),
+                        ] else ...[
+                          const Text(
+                            "Device Disconnected",
+                            style: TextStyle(
+                              color: TailOColors.muted,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ],
                 ),
               ),
 
-              // Content Section
+              // ================= CONTENT SECTION =================
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20.0),
                 child: Column(
@@ -269,9 +392,11 @@ class _OverviewPageState extends State<OverviewPage> {
                                   ),
                                   child: CircleAvatar(
                                     backgroundColor: Colors.transparent,
-                                    backgroundImage: AssetImage(
-                                      activePet.image,
-                                    ),
+                                    // UPDATED: Use DataService to load pet image correctly
+                                    backgroundImage:
+                                        DataService.getImageProvider(
+                                          activePet.image,
+                                        ),
                                   ),
                                 ),
                               ],
@@ -396,6 +521,13 @@ class _OverviewPageState extends State<OverviewPage> {
                             ),
                       ),
                     ),
+                    const SizedBox(height: 16),
+
+                    // --- ADD FOOTER HERE ---
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 20.0),
+                      child: BrandFooter(),
+                    ),
                     const SizedBox(height: 30),
                   ],
                 ),
@@ -454,7 +586,8 @@ class _OverviewPageState extends State<OverviewPage> {
                   backgroundColor: isSelected
                       ? theme.cardColor
                       : theme.cardColor.withValues(alpha: 0.5),
-                  backgroundImage: AssetImage(assetPath),
+                  // UPDATED: Use DataService to load image correctly
+                  backgroundImage: DataService.getImageProvider(assetPath),
                 ),
               ),
               Positioned(

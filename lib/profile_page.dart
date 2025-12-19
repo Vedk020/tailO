@@ -12,6 +12,7 @@ import 'signup_flow.dart';
 import 'login_page.dart';
 import 'pet_model.dart';
 import 'owner_qr_page.dart';
+import 'brand_footer.dart'; // REQUIRED IMPORT
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -23,7 +24,7 @@ class ProfilePage extends StatefulWidget {
 class _ProfilePageState extends State<ProfilePage> {
   final GlobalKey _cardKey = GlobalKey();
 
-  // --- SHARE LOGIC (Hidden for brevity, same as before) ---
+  // --- SHARE LOGIC ---
   void _showShareOverlay(BuildContext context, Pet pet) {
     showGeneralDialog(
       context: context,
@@ -286,7 +287,56 @@ class _ProfilePageState extends State<ProfilePage> {
                 ),
                 const SizedBox(height: 16),
 
-                // Logout Button (Unpair Removed)
+                // Unpair (If connected)
+                if (currentPet.isConnected) ...[
+                  Container(
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      color: theme.cardColor,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: Colors.orange.withValues(alpha: 0.3),
+                      ),
+                    ),
+                    child: InkWell(
+                      onTap: () async {
+                        await DataService().setPetConnection(
+                          currentPet.id,
+                          false,
+                        );
+                        if (context.mounted)
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text("Device Unpaired"),
+                              backgroundColor: Colors.orange,
+                            ),
+                          );
+                      },
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            LucideIcons.unlink,
+                            color: Colors.orange,
+                            size: 22,
+                          ),
+                          SizedBox(width: 12),
+                          Text(
+                            "Unpair Device",
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.orange,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+
+                // Logout
                 Container(
                   padding: const EdgeInsets.all(18),
                   decoration: BoxDecoration(
@@ -323,84 +373,8 @@ class _ProfilePageState extends State<ProfilePage> {
                   ),
                 ),
 
-                const SizedBox(height: 60),
-
-                // --- FOOTER BRANDING  ---
-                Align(
-                  alignment: Alignment.centerLeft, // Left aligned like image
-                  child: Opacity(
-                    opacity: 0.4, // Subtle watermark look
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          "#AuroralLabs",
-                          style: TextStyle(
-                            fontSize: 40, // Large bold font
-                            fontWeight: FontWeight.w900,
-                            color: theme.dividerColor.withValues(alpha: 0.8),
-                            fontStyle: FontStyle.italic,
-                            letterSpacing: -1.0,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            // Flag Icon (Using text emoji or an asset if you have one)
-                            const Text("🇮🇳 ", style: TextStyle(fontSize: 14)),
-                            Text(
-                              "Made for India",
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                color: theme.textTheme.bodyLarge?.color,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        Row(
-                          children: [
-                            const Icon(
-                              LucideIcons.heart,
-                              size: 14,
-                              color: Colors.red,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              "Crafted by love",
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                color: theme.textTheme.bodyLarge?.color,
-                              ),
-                            ),
-                          ],
-                        ),
-                        Row(
-                          children: [
-                            const Icon(
-                              LucideIcons.heart,
-                              size: 14,
-                              color: Colors.red,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              "for your loved once",
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                color: theme.textTheme.bodyLarge?.color,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                const SizedBox(height: 40),
+                // --- REUSABLE FOOTER ---
+                const BrandFooter(),
               ],
             ),
           ),
@@ -410,7 +384,6 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   // --- SUB-WIDGETS ---
-  // (All sub-widgets: _buildGuestMode, _buildEmptyState, _showPetSwitcher, _buildHeroIDCard, _buildOwnerCard remain exactly the same as previous)
 
   Widget _buildGuestMode(ThemeData theme) {
     return Center(
@@ -678,7 +651,11 @@ class _ProfilePageState extends State<ProfilePage> {
                                       const SizedBox(width: 8),
                                       CircleAvatar(
                                         radius: 24,
-                                        backgroundImage: AssetImage(pet.image),
+                                        // UPDATED IMAGE PROVIDER
+                                        backgroundImage:
+                                            DataService.getImageProvider(
+                                              pet.image,
+                                            ),
                                       ),
                                       const SizedBox(width: 16),
                                       Column(
@@ -789,7 +766,10 @@ class _ProfilePageState extends State<ProfilePage> {
                       child: CircleAvatar(
                         radius: 40,
                         backgroundColor: theme.scaffoldBackgroundColor,
-                        backgroundImage: AssetImage(pet.image),
+                        // UPDATED IMAGE PROVIDER
+                        backgroundImage: DataService.getImageProvider(
+                          pet.image,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 20),
@@ -951,9 +931,12 @@ class _ProfilePageState extends State<ProfilePage> {
         ),
         child: Row(
           children: [
-            const CircleAvatar(
+            CircleAvatar(
               radius: 36,
-              backgroundImage: AssetImage('assets/images/pfp.jpeg'),
+              // UPDATED IMAGE PROVIDER
+              backgroundImage: DataService.getImageProvider(
+                DataService().ownerImage,
+              ),
             ),
             const SizedBox(width: 16),
             Expanded(

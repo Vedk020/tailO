@@ -92,9 +92,12 @@ class _CreatePostPageState extends State<CreatePostPage> {
             // User Header
             Row(
               children: [
-                const CircleAvatar(
+                CircleAvatar(
                   radius: 20,
-                  backgroundImage: AssetImage('assets/images/pfp.jpeg'),
+                  // Show current user's PFP
+                  backgroundImage: DataService.getImageProvider(
+                    DataService().ownerImage,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Text(

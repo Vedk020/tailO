@@ -10,7 +10,7 @@ import 'theme.dart';
 import 'data_service.dart';
 import 'pet_model.dart';
 import 'create_post_page.dart';
-import 'brand_footer.dart';
+import 'brand_footer.dart'; // Import Footer
 
 class CommunityPage extends StatefulWidget {
   const CommunityPage({super.key});
@@ -260,10 +260,11 @@ class _CommunityPageState extends State<CommunityPage> {
                       ),
                       child: Row(
                         children: [
-                          const CircleAvatar(
+                          CircleAvatar(
                             radius: 16,
-                            backgroundImage: AssetImage(
-                              'assets/images/pfp.jpeg',
+                            // Show current user's PFP
+                            backgroundImage: DataService.getImageProvider(
+                              DataService().ownerImage,
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -305,11 +306,10 @@ class _CommunityPageState extends State<CommunityPage> {
 
                   const SizedBox(height: 16),
 
-                  // ADD FOOTER HERE
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 20.0),
-                    child: BrandFooter(),
-                  ),
+                  // --- ADD FOOTER HERE ---
+                  const BrandFooter(),
+
+                  const SizedBox(height: 60), // Extra space for FAB
                 ],
               ),
             ),
@@ -334,6 +334,12 @@ class _CommunityPageState extends State<CommunityPage> {
         ? (isDark ? Colors.white : Colors.black)
         : theme.textTheme.bodyLarge!.color!;
 
+    // Determine Avatar: If it's the current user, show their image. Else show generic app logo for demo users.
+    final bool isCurrentUser = post.author == DataService().ownerName;
+    final ImageProvider avatarImage = isCurrentUser
+        ? DataService.getImageProvider(DataService().ownerImage)
+        : const AssetImage('assets/images/appLogo.png');
+
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -355,10 +361,7 @@ class _CommunityPageState extends State<CommunityPage> {
           // Author
           Row(
             children: [
-              const CircleAvatar(
-                radius: 22,
-                backgroundImage: AssetImage('assets/images/appLogo.png'),
-              ),
+              CircleAvatar(radius: 22, backgroundImage: avatarImage),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -461,10 +464,7 @@ class _CommunityPageState extends State<CommunityPage> {
             Row(
               children: [
                 _actionButton(
-                  icon: post.isLiked
-                      ? LucideIcons.heart
-                      : LucideIcons
-                            .heart, // Use filled icon if available or just color
+                  icon: post.isLiked ? LucideIcons.heart : LucideIcons.heart,
                   color: post.isLiked ? Colors.red : TailOColors.muted,
                   count: "${post.likes}",
                   onTap: () => DataService().togglePostLike(post.id),

@@ -6,6 +6,7 @@ import 'signup_flow.dart';
 import 'medical_record_sheet.dart';
 import 'medical_history_page.dart';
 import 'pet_model.dart';
+import 'brand_footer.dart'; // Ensure this is imported
 
 class HealthPage extends StatefulWidget {
   const HealthPage({super.key});
@@ -408,6 +409,13 @@ class _HealthPageState extends State<HealthPage> {
                   ),
                 ),
 
+              const SizedBox(height: 16),
+
+              // --- BRAND FOOTER ---
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 20.0),
+                child: BrandFooter(),
+              ),
               const SizedBox(height: 30),
             ],
           ),
@@ -842,7 +850,8 @@ class _HealthPageState extends State<HealthPage> {
                   backgroundColor: isSelected
                       ? theme.cardColor
                       : theme.cardColor.withValues(alpha: 0.5),
-                  backgroundImage: AssetImage(assetPath),
+                  // UPDATED: Using DataService.getImageProvider for pet images
+                  backgroundImage: DataService.getImageProvider(assetPath),
                 ),
               ),
               Positioned(

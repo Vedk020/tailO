@@ -1,4 +1,6 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart'; // REQUIRED
 import 'package:lucide_icons/lucide_icons.dart';
 import 'theme.dart';
 import 'main.dart';
@@ -24,6 +26,11 @@ class _SignupFlowState extends State<SignupFlow> {
   final TextEditingController _petNameController = TextEditingController();
   final TextEditingController _weightController = TextEditingController();
 
+  // Images
+  File? _ownerImageFile;
+  File? _petImageFile;
+  final ImagePicker _picker = ImagePicker();
+
   // Selection Data
   String? _selectedPetType;
   String? _selectedGender;
@@ -31,7 +38,6 @@ class _SignupFlowState extends State<SignupFlow> {
   DateTime? _selectedDob;
   bool _isSterilized = false;
 
-  // Pre-filled Breeds
   final List<String> _dogBreeds = [
     "Golden Retriever",
     "German Shepherd",
@@ -47,7 +53,6 @@ class _SignupFlowState extends State<SignupFlow> {
     "Shih Tzu",
     "Other",
   ];
-
   final List<String> _catBreeds = [
     "Persian",
     "Siamese",
@@ -64,18 +69,31 @@ class _SignupFlowState extends State<SignupFlow> {
   @override
   void initState() {
     super.initState();
-    // If adding another agent from inside the app, skip Owner Details & Password
     if (widget.isAddingAnotherPet) {
       _currentStep = 2;
+    }
+  }
+
+  Future<void> _pickImage(bool isOwner) async {
+    final XFile? pickedFile = await _picker.pickImage(
+      source: ImageSource.gallery,
+    );
+    if (pickedFile != null) {
+      setState(() {
+        if (isOwner) {
+          _ownerImageFile = File(pickedFile.path);
+        } else {
+          _petImageFile = File(pickedFile.path);
+        }
+      });
     }
   }
 
   // --- NAVIGATION LOGIC ---
   void _nextStep() {
     String? error;
-
     switch (_currentStep) {
-      case 0: // Owner Info
+      case 0:
         if (_ownerNameController.text.trim().isEmpty)
           error = "Please enter your name.";
         else if (_emailController.text.trim().isEmpty)
@@ -83,27 +101,27 @@ class _SignupFlowState extends State<SignupFlow> {
         else if (!_emailController.text.contains('@'))
           error = "Enter a valid email.";
         break;
-      case 1: // Password
+      case 1:
         if (_passwordController.text.length < 6)
           error = "Password must be at least 6 chars.";
         break;
-      case 2: // Type
+      case 2:
         if (_selectedPetType == null) error = "Please select an Agent type.";
         break;
-      case 3: // Name
+      case 3:
         if (_petNameController.text.trim().isEmpty)
           error = "Please enter the Agent's name.";
         break;
-      case 4: // DOB
+      case 4:
         if (_selectedDob == null) error = "Please select the birth date.";
         break;
-      case 5: // Details (Breed & Weight)
+      case 5:
         if (_selectedBreed == null)
           error = "Please select a breed.";
         else if (_weightController.text.trim().isEmpty)
           error = "Please enter the weight.";
         break;
-      case 6: // Gender
+      case 6:
         if (_selectedGender == null) error = "Please select the gender.";
         break;
     }
@@ -153,23 +171,22 @@ class _SignupFlowState extends State<SignupFlow> {
         );
       },
     );
-    if (picked != null) {
-      setState(() => _selectedDob = picked);
-    }
+    if (picked != null) setState(() => _selectedDob = picked);
   }
 
   // --- SAVE & FINISH ---
   void _generateSmartCard() async {
-    // 1. Save Owner Info (If new signup)
+    // 1. Save Owner Info
     if (!widget.isAddingAnotherPet) {
       await DataService().setUserInfo(
         name: _ownerNameController.text.trim(),
         email: _emailController.text.trim(),
-        password: _passwordController.text.trim(), // <--- SAVING PASSWORD HERE
+        password: _passwordController.text.trim(),
+        imagePath: _ownerImageFile?.path, // Save Owner Image Path
       );
     }
 
-    // 2. Create the new Agent
+    // 2. Create Agent
     final newPet = Pet(
       id: "#${(10000 + DateTime.now().millisecondsSinceEpoch % 90000)}",
       name: _petNameController.text.trim(),
@@ -178,7 +195,9 @@ class _SignupFlowState extends State<SignupFlow> {
       gender: _selectedGender!,
       weight: "${_weightController.text.trim()} kg",
       dob: _selectedDob!,
-      image: "assets/images/appLogo.png",
+      image:
+          _petImageFile?.path ??
+          "assets/images/appLogo.png", // Save Pet Image Path
       isConnected: true,
       battery: 1.0,
     );
@@ -312,9 +331,28 @@ class _SignupFlowState extends State<SignupFlow> {
       case 0:
         return _buildMascotStep(
           theme,
-          "Welcome to the Agency! Who are we working with?",
+          "Welcome! Tap the photo to add your picture.",
           Column(
             children: [
+              // OWNER AVATAR PICKER
+              GestureDetector(
+                onTap: () => _pickImage(true),
+                child: CircleAvatar(
+                  radius: 50,
+                  backgroundColor: theme.cardColor,
+                  backgroundImage: _ownerImageFile != null
+                      ? FileImage(_ownerImageFile!)
+                      : null,
+                  child: _ownerImageFile == null
+                      ? const Icon(
+                          LucideIcons.camera,
+                          size: 30,
+                          color: TailOColors.muted,
+                        )
+                      : null,
+                ),
+              ),
+              const SizedBox(height: 24),
               _buildTextField(
                 theme,
                 "Your Name",
@@ -381,12 +419,35 @@ class _SignupFlowState extends State<SignupFlow> {
       case 3:
         return _buildMascotStep(
           theme,
-          "What is your ${_selectedPetType ?? 'agent'}'s name?",
-          _buildTextField(
-            theme,
-            "Agent Name",
-            _petNameController,
-            LucideIcons.pencil,
+          "Upload their best photo & name!",
+          Column(
+            children: [
+              // PET AVATAR PICKER
+              GestureDetector(
+                onTap: () => _pickImage(false),
+                child: CircleAvatar(
+                  radius: 50,
+                  backgroundColor: theme.cardColor,
+                  backgroundImage: _petImageFile != null
+                      ? FileImage(_petImageFile!)
+                      : null,
+                  child: _petImageFile == null
+                      ? const Icon(
+                          LucideIcons.camera,
+                          size: 30,
+                          color: TailOColors.muted,
+                        )
+                      : null,
+                ),
+              ),
+              const SizedBox(height: 24),
+              _buildTextField(
+                theme,
+                "Agent Name",
+                _petNameController,
+                LucideIcons.pencil,
+              ),
+            ],
           ),
         );
       case 4:
@@ -501,6 +562,7 @@ class _SignupFlowState extends State<SignupFlow> {
     }
   }
 
+  // --- REUSABLE WIDGETS ---
   Widget _buildMascotStep(ThemeData theme, String speech, Widget content) {
     return Column(
       children: [
