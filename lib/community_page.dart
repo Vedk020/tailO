@@ -10,6 +10,7 @@ import 'theme.dart';
 import 'data_service.dart';
 import 'pet_model.dart';
 import 'create_post_page.dart';
+import 'brand_footer.dart';
 
 class CommunityPage extends StatefulWidget {
   const CommunityPage({super.key});
@@ -302,7 +303,13 @@ class _CommunityPageState extends State<CommunityPage> {
                     ),
                   ),
 
-                  const SizedBox(height: 60),
+                  const SizedBox(height: 16),
+
+                  // ADD FOOTER HERE
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 20.0),
+                    child: BrandFooter(),
+                  ),
                 ],
               ),
             ),

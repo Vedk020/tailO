@@ -325,7 +325,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
                 const SizedBox(height: 60),
 
-                // --- FOOTER BRANDING (RAPIDO STYLE) ---
+                // --- FOOTER BRANDING  ---
                 Align(
                   alignment: Alignment.centerLeft, // Left aligned like image
                   child: Opacity(
