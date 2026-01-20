@@ -22,7 +22,7 @@ dependencies:
 
   # Functional (For future steps)
   fl_chart: ^0.66.0     # For the Heart Rate/ECG graph
-  flutter_map: ^6.0.0   # For the Live Location map
+  flutter_map: ^8.2.2   # For the Live Location map
   shared_preferences: ^2.5.3 # For storing cache
   image_picker: ^1.2.1       # For picking images
   path_provider: ^2.1.2      # For finding where to save them
@@ -30,6 +30,8 @@ dependencies:
   share_plus: ^9.0.0 #share
   qr_flutter: ^4.1.0 #qr
   mobile_scanner: ^7.1.4
+  latlong2: ^0.9.1
+  geolocator: ^12.0.0
 
 
 dev_dependencies:

@@ -1,6 +1,9 @@
 import 'dart:ui'; // Required for ImageFilter
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:flutter_map/flutter_map.dart'; // REQUIRED: Add flutter_map to pubspec.yaml
+import 'package:latlong2/latlong.dart'; // REQUIRED: Add latlong2 to pubspec.yaml
+import 'package:geolocator/geolocator.dart'; // REQUIRED: Add geolocator to pubspec.yaml
 import 'theme.dart';
 import 'data_service.dart';
 import 'signup_flow.dart';
@@ -15,7 +18,101 @@ class OverviewPage extends StatefulWidget {
 }
 
 class _OverviewPageState extends State<OverviewPage> {
-  bool _isPairing = false; // Local state for loading spinner
+  bool _isPairing = false; // Local state for pairing loading
+  bool _isRefreshingLocation = false; // Local state for location refresh
+
+  // Map Controller to move the map programmatically
+  final MapController _mapController = MapController();
+
+  // DEFAULT LOCATION: Amaravati/Guntur Region (Fallback if GPS fails)
+  LatLng _petLocation = const LatLng(16.4971, 80.4992);
+  bool _isLiveLocation = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Attempt to fetch real GPS immediately on load
+    _getCurrentLocation();
+  }
+
+  // --- GET REAL LOCATION LOGIC ---
+  Future<void> _getCurrentLocation() async {
+    setState(() => _isRefreshingLocation = true); // Start loading spinner
+
+    bool serviceEnabled;
+    LocationPermission permission;
+
+    // 1. Check if location services are enabled
+    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      if (mounted) {
+        setState(() => _isRefreshingLocation = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Location services are disabled.')),
+        );
+      }
+      return;
+    }
+
+    // 2. Check permissions
+    permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        if (mounted) {
+          setState(() => _isRefreshingLocation = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Location permission denied.')),
+          );
+        }
+        return;
+      }
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      if (mounted) {
+        setState(() => _isRefreshingLocation = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Location permissions are permanently denied. Please enable in settings.',
+            ),
+          ),
+        );
+      }
+      return;
+    }
+
+    // 3. Get Actual Position
+    try {
+      Position position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+
+      if (mounted) {
+        setState(() {
+          _petLocation = LatLng(position.latitude, position.longitude);
+          _isLiveLocation = true;
+          _isRefreshingLocation = false; // Stop loading
+        });
+
+        // Animated move to real location
+        _mapController.move(_petLocation, 16.0);
+
+        // Success Feedback
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Location Updated"),
+            duration: Duration(milliseconds: 800),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint("Error fetching location: $e");
+      if (mounted) setState(() => _isRefreshingLocation = false);
+    }
+  }
 
   // --- SIMULATE PAIRING ---
   void _pairDevice(String petId) async {
@@ -37,6 +134,18 @@ class _OverviewPageState extends State<OverviewPage> {
         ),
       );
     }
+  }
+
+  // --- PLACEHOLDER NAVIGATION ---
+  void _getDirections() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text("Opening Maps... (Directions coming soon!)"),
+        backgroundColor: TailOColors.coral,
+      ),
+    );
+    // TODO: Implement url_launcher to open Google Maps
+    // final url = 'https://www.google.com/maps/dir/?api=1&destination=${_petLocation.latitude},${_petLocation.longitude}';
   }
 
   @override
@@ -165,7 +274,7 @@ class _OverviewPageState extends State<OverviewPage> {
                       child: Stack(
                         alignment: Alignment.center,
                         children: [
-                          // 1. The Belt Image (Static Asset)
+                          // 1. The Belt Image
                           Positioned(
                             bottom: 0,
                             child: Image.asset(
@@ -281,7 +390,7 @@ class _OverviewPageState extends State<OverviewPage> {
                           BatteryIndicator(battery: activePet.battery),
                           const SizedBox(height: 6),
                           const Text(
-                            "Updated 2 min ago",
+                            "Updated just now",
                             style: TextStyle(
                               color: Color(0xFF4A4A4E),
                               fontSize: 11,
@@ -303,14 +412,16 @@ class _OverviewPageState extends State<OverviewPage> {
                 ),
               ),
 
-              // ================= CONTENT SECTION =================
+              const SizedBox(height: 30),
+
+              // ================= LIVE MAP WIDGET =================
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20.0),
                 child: Column(
                   children: [
-                    // Live Location Map
+                    // REAL LIVE MAP CONTAINER
                     Container(
-                      height: 170,
+                      height: 220, // Taller to accommodate controls
                       width: double.infinity,
                       decoration: BoxDecoration(
                         color: theme.cardColor,
@@ -330,91 +441,220 @@ class _OverviewPageState extends State<OverviewPage> {
                           ),
                         ],
                       ),
-                      child: Stack(
-                        children: [
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(20),
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: theme.cardColor,
-                                image: DecorationImage(
-                                  image: const NetworkImage(
-                                    "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ec/World_map_blank_without_borders.svg/2000px-World_map_blank_without_borders.svg.png",
-                                  ),
-                                  fit: BoxFit.cover,
-                                  opacity: 0.3,
-                                  colorFilter: ColorFilter.mode(
-                                    Colors.black.withValues(
-                                      alpha: isDark ? 0.5 : 0.2,
-                                    ),
-                                    BlendMode.darken,
-                                  ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(20),
+                        child: Stack(
+                          children: [
+                            // 1. FLUTTER MAP IMPLEMENTATION
+                            FlutterMap(
+                              mapController: _mapController,
+                              options: MapOptions(
+                                initialCenter: _petLocation,
+                                initialZoom: 15.0,
+                                interactionOptions: const InteractionOptions(
+                                  flags:
+                                      InteractiveFlag.all &
+                                      ~InteractiveFlag.rotate,
                                 ),
                               ),
-                            ),
-                          ),
-                          Center(
-                            child: Stack(
-                              alignment: Alignment.center,
                               children: [
-                                if (activePet.isConnected)
-                                  Container(
-                                    height: 70,
-                                    width: 70,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      border: Border.all(
-                                        color: TailOColors.coral.withValues(
-                                          alpha: 0.3,
+                                TileLayer(
+                                  // CartoDB tiles: Auto Dark/Light mode
+                                  urlTemplate: isDark
+                                      ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'
+                                      : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+                                  subdomains: const ['a', 'b', 'c', 'd'],
+                                  userAgentPackageName:
+                                      'com.aurorallabs.tailo', // CORRECT PACKAGE NAME
+                                ),
+                                // 2. PET MARKER
+                                MarkerLayer(
+                                  markers: [
+                                    if (activePet.isConnected)
+                                      Marker(
+                                        point: _petLocation,
+                                        width: 80,
+                                        height: 80,
+                                        child: Stack(
+                                          alignment: Alignment.center,
+                                          children: [
+                                            // Outer pulsing ring effect
+                                            Container(
+                                              width: 70,
+                                              height: 70,
+                                              decoration: BoxDecoration(
+                                                shape: BoxShape.circle,
+                                                border: Border.all(
+                                                  color: TailOColors.coral
+                                                      .withValues(alpha: 0.3),
+                                                  width: 1.5,
+                                                ),
+                                                color: TailOColors.coral
+                                                    .withValues(alpha: 0.1),
+                                              ),
+                                            ),
+                                            // The Avatar
+                                            Container(
+                                              height: 48,
+                                              width: 48,
+                                              decoration: BoxDecoration(
+                                                shape: BoxShape.circle,
+                                                border: Border.all(
+                                                  color: TailOColors.coral,
+                                                  width: 2.5,
+                                                ),
+                                                boxShadow: [
+                                                  BoxShadow(
+                                                    color: TailOColors.coral
+                                                        .withValues(alpha: 0.6),
+                                                    blurRadius: 16,
+                                                    spreadRadius: 4,
+                                                  ),
+                                                ],
+                                              ),
+                                              child: CircleAvatar(
+                                                backgroundColor:
+                                                    theme.cardColor,
+                                                backgroundImage:
+                                                    DataService.getImageProvider(
+                                                      activePet.image,
+                                                    ),
+                                              ),
+                                            ),
+                                          ],
                                         ),
-                                        width: 1.5,
                                       ),
-                                    ),
-                                  ),
-                                Container(
-                                  height: 48,
-                                  width: 48,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                      color: TailOColors.coral,
-                                      width: 2.5,
-                                    ),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: TailOColors.coral.withValues(
-                                          alpha: 0.6,
-                                        ),
-                                        blurRadius: 16,
-                                        spreadRadius: 4,
-                                      ),
-                                    ],
-                                  ),
-                                  child: CircleAvatar(
-                                    backgroundColor: Colors.transparent,
-                                    // UPDATED: Use DataService to load pet image correctly
-                                    backgroundImage:
-                                        DataService.getImageProvider(
-                                          activePet.image,
-                                        ),
-                                  ),
+                                  ],
                                 ),
                               ],
                             ),
-                          ),
-                          const Positioned(
-                            bottom: 14,
-                            left: 16,
-                            child: Text(
-                              "Live Location",
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w500,
-                                color: Color(0xFFAAAAAE),
+
+                            // 3. OVERLAYS (Gradient for text readability)
+                            Positioned(
+                              bottom: 0,
+                              left: 0,
+                              right: 0,
+                              height: 80,
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.bottomCenter,
+                                    end: Alignment.topCenter,
+                                    colors: [
+                                      theme.cardColor.withValues(alpha: 0.95),
+                                      Colors.transparent,
+                                    ],
+                                  ),
+                                ),
                               ),
                             ),
-                          ),
-                        ],
+
+                            // 4. "Live Location" Label
+                            Positioned(
+                              bottom: 16,
+                              left: 16,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: activePet.isConnected
+                                          ? Colors.green
+                                          : Colors.red,
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        const Icon(
+                                          LucideIcons.radio,
+                                          color: Colors.white,
+                                          size: 12,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          activePet.isConnected
+                                              ? "LIVE"
+                                              : "OFFLINE",
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    _isLiveLocation
+                                        ? "Current Location"
+                                        : "Last Known Loc",
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                      color: theme.textTheme.bodyLarge?.color,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+
+                            // 5. MAP CONTROLS (Top Right)
+                            Positioned(
+                              top: 12,
+                              right: 12,
+                              child: Column(
+                                children: [
+                                  // Expand Button
+                                  _buildMapControlButton(
+                                    context,
+                                    icon: LucideIcons.maximize,
+                                    onTap: () {
+                                      // Navigate to Full Screen
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => FullScreenMapPage(
+                                            petImage: activePet.image,
+                                            initialLocation: _petLocation,
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                  const SizedBox(height: 8),
+                                  // Refresh Button
+                                  _buildMapControlButton(
+                                    context,
+                                    icon: LucideIcons.refreshCw,
+                                    isLoading: _isRefreshingLocation,
+                                    onTap: _getCurrentLocation,
+                                  ),
+                                ],
+                              ),
+                            ),
+
+                            // 6. GET DIRECTIONS BUTTON (Bottom Right)
+                            Positioned(
+                              bottom: 16,
+                              right: 16,
+                              child: FloatingActionButton.small(
+                                backgroundColor: TailOColors.coral,
+                                onPressed: _getDirections,
+                                tooltip: "Get Directions",
+                                child: const Icon(
+                                  LucideIcons.navigation,
+                                  color: Colors.white,
+                                  size: 20,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
 
@@ -539,6 +779,44 @@ class _OverviewPageState extends State<OverviewPage> {
     );
   }
 
+  // --- HELPER FOR MAP BUTTONS ---
+  Widget _buildMapControlButton(
+    BuildContext context, {
+    required IconData icon,
+    required VoidCallback onTap,
+    bool isLoading = false,
+  }) {
+    final theme = Theme.of(context);
+    return Container(
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: isLoading
+          ? const Padding(
+              padding: EdgeInsets.all(10),
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: TailOColors.coral,
+              ),
+            )
+          : IconButton(
+              padding: EdgeInsets.zero,
+              icon: Icon(icon, size: 20, color: theme.iconTheme.color),
+              onPressed: onTap,
+            ),
+    );
+  }
+
   Widget _divider(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 14.0),
@@ -571,7 +849,6 @@ class _OverviewPageState extends State<OverviewPage> {
         children: [
           Stack(
             alignment: Alignment.center,
-            clipBehavior: Clip.none,
             children: [
               Container(
                 padding: const EdgeInsets.all(2.5),
@@ -586,7 +863,7 @@ class _OverviewPageState extends State<OverviewPage> {
                   backgroundColor: isSelected
                       ? theme.cardColor
                       : theme.cardColor.withValues(alpha: 0.5),
-                  // UPDATED: Use DataService to load image correctly
+                  // UPDATED: Use DataService for images
                   backgroundImage: DataService.getImageProvider(assetPath),
                 ),
               ),
@@ -735,6 +1012,147 @@ class BatteryIndicator extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+// --- FULL SCREEN MAP PAGE ---
+class FullScreenMapPage extends StatefulWidget {
+  final String petImage;
+  final LatLng initialLocation;
+
+  const FullScreenMapPage({
+    super.key,
+    required this.petImage,
+    required this.initialLocation,
+  });
+
+  @override
+  State<FullScreenMapPage> createState() => _FullScreenMapPageState();
+}
+
+class _FullScreenMapPageState extends State<FullScreenMapPage> {
+  late final MapController _mapController;
+  late LatLng _currentLocation;
+
+  @override
+  void initState() {
+    super.initState();
+    _mapController = MapController();
+    _currentLocation = widget.initialLocation;
+  }
+
+  void _recenter() {
+    _mapController.move(_currentLocation, 16.0);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    return Scaffold(
+      body: Stack(
+        children: [
+          FlutterMap(
+            mapController: _mapController,
+            options: MapOptions(
+              initialCenter: _currentLocation,
+              initialZoom: 16.0,
+            ),
+            children: [
+              TileLayer(
+                urlTemplate: isDark
+                    ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'
+                    : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+                subdomains: const ['a', 'b', 'c', 'd'],
+                userAgentPackageName: 'com.aurorallabs.tailo',
+              ),
+              MarkerLayer(
+                markers: [
+                  Marker(
+                    point: _currentLocation,
+                    width: 100,
+                    height: 100,
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        Container(
+                          width: 90,
+                          height: 90,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: TailOColors.coral.withValues(alpha: 0.3),
+                              width: 2,
+                            ),
+                            color: TailOColors.coral.withValues(alpha: 0.15),
+                          ),
+                        ),
+                        Container(
+                          height: 60,
+                          width: 60,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: TailOColors.coral,
+                              width: 3,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: TailOColors.coral.withValues(alpha: 0.6),
+                                blurRadius: 20,
+                                spreadRadius: 5,
+                              ),
+                            ],
+                          ),
+                          child: CircleAvatar(
+                            backgroundImage: DataService.getImageProvider(
+                              widget.petImage,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+
+          // Back Button
+          Positioned(
+            top: 50,
+            left: 20,
+            child: GestureDetector(
+              onTap: () => Navigator.pop(context),
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: theme.cardColor,
+                  shape: BoxShape.circle,
+                  boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10)],
+                ),
+                child: Icon(
+                  LucideIcons.arrowLeft,
+                  color: theme.iconTheme.color,
+                ),
+              ),
+            ),
+          ),
+
+          // Recenter Button
+          Positioned(
+            bottom: 40,
+            right: 20,
+            child: FloatingActionButton(
+              backgroundColor: TailOColors.coral,
+              onPressed: _recenter,
+              child: const Icon(LucideIcons.locate, color: Colors.white),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
