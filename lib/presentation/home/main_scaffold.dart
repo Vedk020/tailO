@@ -1,60 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
-import 'core/theme/app_theme.dart';
-import 'core/theme/theme_controller.dart';
-import 'core/services/data_service.dart';
-import '../../../../core/theme/colors.dart';
-// Screens
-import 'presentation/auth/login/login_page.dart';
-import 'presentation/home/overview/overview_page.dart';
-import 'presentation/home/health/health_page.dart';
-import 'presentation/home/tips/tips_page.dart';
-import 'presentation/home/profile/profile_page.dart';
-import 'presentation/home/community/community_page.dart';
-import 'presentation/settings/settings_page.dart';
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+// Core
+import '../../core/theme/colors.dart';
+import '../../core/services/data_service.dart';
 
-  try {
-    // Initialize DataService (Singleton)
-    // This loads cache, user info, and login state before app starts
-    await DataService().init();
-  } catch (e) {
-    debugPrint("Error loading data: $e");
-  }
-
-  runApp(const TailOApp());
-}
-
-class TailOApp extends StatelessWidget {
-  const TailOApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    // 1. Listen to Theme Changes
-    return ValueListenableBuilder<ThemeMode>(
-      valueListenable: ThemeController.themeMode,
-      builder: (context, themeMode, _) {
-        return MaterialApp(
-          title: 'tailO',
-          debugShowCheckedModeBanner: false,
-          themeMode: themeMode,
-          theme: TailOTheme.lightTheme,
-          darkTheme: TailOTheme.darkTheme,
-          // 2. Listen to Login State Changes (Reactive Navigation)
-          // This ensures immediate redirect on Login/Logout
-          home: ValueListenableBuilder<bool>(
-            valueListenable: DataService().isLoggedInNotifier,
-            builder: (context, isLoggedIn, _) {
-              return isLoggedIn ? const MainScaffold() : const LoginPage();
-            },
-          ),
-        );
-      },
-    );
-  }
-}
+// Pages
+import 'overview/overview_page.dart';
+import 'health/health_page.dart';
+import 'community/community_page.dart';
+import 'profile/profile_page.dart';
+import 'tips/tips_page.dart';
+import '../settings/settings_page.dart'; // For AppBar navigation
 
 class MainScaffold extends StatefulWidget {
   const MainScaffold({super.key});
@@ -67,13 +24,13 @@ class _MainScaffoldState extends State<MainScaffold> {
   int _currentIndex = 2; // Default to Overview (Center)
   late final PageController _pageController;
 
-  // Screen List
+  // The 5 Main Screens
   final List<Widget> _screens = const [
-    TipsPage(),
-    CommunityPage(),
-    OverviewPage(),
-    HealthPage(),
-    ProfilePage(),
+    TipsPage(), // 0
+    CommunityPage(), // 1
+    OverviewPage(), // 2 (Home)
+    HealthPage(), // 3
+    ProfilePage(), // 4
   ];
 
   @override
@@ -104,19 +61,22 @@ class _MainScaffoldState extends State<MainScaffold> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // Extracted AppBar for cleaner MainScaffold
+      // 1. Custom App Bar
       appBar: const PreferredSize(
         preferredSize: Size.fromHeight(70),
-        child: TailOAppBar(),
+        child: _TailOAppBar(),
       ),
+
+      // 2. Main Content Area
       body: PageView(
         controller: _pageController,
         physics: const BouncingScrollPhysics(),
         onPageChanged: _onPageChanged,
         children: _screens,
       ),
-      // Extracted BottomNavBar for cleaner MainScaffold
-      bottomNavigationBar: TailOBottomNavBar(
+
+      // 3. Curved Bottom Navigation
+      bottomNavigationBar: _TailOBottomNavBar(
         currentIndex: _currentIndex,
         onTap: _onNavTap,
       ),
@@ -127,82 +87,88 @@ class _MainScaffoldState extends State<MainScaffold> {
 // ==========================================
 // 🧩 COMPONENT: CUSTOM APP BAR
 // ==========================================
-class TailOAppBar extends StatelessWidget {
-  const TailOAppBar({super.key});
+class _TailOAppBar extends StatelessWidget {
+  const _TailOAppBar();
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final dataService = DataService(); // Singleton access
 
-    return Container(
-      padding: const EdgeInsets.only(top: 45, left: 20, right: 20),
-      color: theme.scaffoldBackgroundColor,
-      child: Row(
-        children: [
-          // Logo
-          Text(
-            "tail",
-            style: TextStyle(
-              fontSize: 25,
-              fontWeight: FontWeight.w600,
-              color: theme.textTheme.bodyLarge?.color,
-            ),
-          ),
-          const Text(
-            "O",
-            style: TextStyle(
-              fontSize: 25,
-              fontWeight: FontWeight.w600,
-              color: TailOColors.coral,
-            ),
-          ),
-          const Spacer(),
+    // Listen to Pet changes to update the Avatar in AppBar
+    return ValueListenableBuilder<String?>(
+      valueListenable: DataService().selectedPetIdNotifier,
+      builder: (context, _, __) {
+        // Safe getter for the active pet image
+        final userImage = DataService().ownerImage;
 
-          // QR Scan Button
-          IconButton(
-            icon: Icon(
-              LucideIcons.scanLine,
-              size: 22,
-              color: theme.iconTheme.color,
-            ),
-            tooltip: "Scan Device",
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text("QR Scanner ready for integration!"),
+        return Container(
+          padding: const EdgeInsets.only(top: 45, left: 20, right: 20),
+          color: theme.scaffoldBackgroundColor,
+          child: Row(
+            children: [
+              // Logo Text
+              Text(
+                "tail",
+                style: TextStyle(
+                  fontSize: 25,
+                  fontWeight: FontWeight.w600,
+                  color: theme.textTheme.bodyLarge?.color,
                 ),
-              );
-            },
-          ),
+              ),
+              const Text(
+                "O",
+                style: TextStyle(
+                  fontSize: 25,
+                  fontWeight: FontWeight.w600,
+                  color: TailOColors.coral,
+                ),
+              ),
+              const Spacer(),
 
-          // Settings Button
-          IconButton(
-            icon: Icon(
-              LucideIcons.settings,
-              size: 22,
-              color: theme.iconTheme.color,
-            ),
-            tooltip: "Settings",
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const SettingsPage()),
-              );
-            },
-          ),
-          const SizedBox(width: 8),
+              // QR Scanner (Placeholder)
+              IconButton(
+                icon: Icon(
+                  LucideIcons.scanLine,
+                  size: 22,
+                  color: theme.iconTheme.color,
+                ),
+                tooltip: "Scan Device",
+                onPressed: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text("QR Scanner ready for integration!"),
+                    ),
+                  );
+                },
+              ),
 
-          // User Avatar
-          CircleAvatar(
-            radius: 18,
-            backgroundColor: TailOColors.darkCard,
-            backgroundImage: DataService.getImageProvider(
-              dataService.ownerImage,
-            ),
+              // Settings Button
+              IconButton(
+                icon: Icon(
+                  LucideIcons.settings,
+                  size: 22,
+                  color: theme.iconTheme.color,
+                ),
+                tooltip: "Settings",
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const SettingsPage()),
+                  );
+                },
+              ),
+              const SizedBox(width: 8),
+
+              // User Avatar
+              CircleAvatar(
+                radius: 18,
+                backgroundColor: theme.cardColor,
+                backgroundImage: DataService.getImageProvider(userImage),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -210,15 +176,11 @@ class TailOAppBar extends StatelessWidget {
 // ==========================================
 // 🧩 COMPONENT: CURVED BOTTOM NAV BAR
 // ==========================================
-class TailOBottomNavBar extends StatelessWidget {
+class _TailOBottomNavBar extends StatelessWidget {
   final int currentIndex;
   final Function(int) onTap;
 
-  const TailOBottomNavBar({
-    super.key,
-    required this.currentIndex,
-    required this.onTap,
-  });
+  const _TailOBottomNavBar({required this.currentIndex, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -229,7 +191,7 @@ class TailOBottomNavBar extends StatelessWidget {
         color: theme.scaffoldBackgroundColor,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.1),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 12,
             offset: const Offset(0, -4),
           ),
@@ -266,7 +228,7 @@ class TailOBottomNavBar extends StatelessWidget {
                           isSelected: currentIndex == 1,
                           onTap: onTap,
                         ),
-                        const SizedBox(width: 80), // Space for center button
+                        const SizedBox(width: 80), // Gap for center button
                         _NavItem(
                           icon: LucideIcons.heartPulse,
                           label: "Health",
@@ -287,9 +249,9 @@ class TailOBottomNavBar extends StatelessWidget {
                 ),
               ),
 
-              // 2. The Floating Center Button
+              // 2. The Floating Center Button (Overview)
               Positioned(
-                bottom: 15,
+                bottom: 20,
                 left: MediaQuery.of(context).size.width / 2 - 32,
                 child: GestureDetector(
                   onTap: () => onTap(2),
@@ -306,16 +268,23 @@ class TailOBottomNavBar extends StatelessWidget {
                           color: currentIndex == 2
                               ? TailOColors.coral.withValues(alpha: 0.5)
                               : Colors.black.withValues(alpha: 0.3),
-                          blurRadius: currentIndex == 2 ? 20 : 10,
-                          spreadRadius: currentIndex == 2 ? 4 : 1,
+                          blurRadius: currentIndex == 2 ? 16 : 8,
+                          spreadRadius: currentIndex == 2 ? 2 : 0,
+                          offset: const Offset(0, 4),
                         ),
                       ],
                     ),
                     child: Padding(
                       padding: const EdgeInsets.all(14),
                       child: Image.asset(
-                        'assets/images/overviewIcon.png',
+                        'assets/images/overviewIcon.png', // Ensure this asset exists!
                         color: Colors.white,
+                        errorBuilder: (context, error, stackTrace) =>
+                            const Icon(
+                              LucideIcons.home,
+                              color: Colors.white,
+                              size: 30,
+                            ),
                       ),
                     ),
                   ),
@@ -349,8 +318,10 @@ class _NavItem extends StatelessWidget {
     final color = isSelected
         ? TailOColors.coral
         : Theme.of(context).iconTheme.color;
+
     return GestureDetector(
       onTap: () => onTap(index),
+      behavior: HitTestBehavior.opaque, // Improves tap area
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -378,6 +349,7 @@ class _CurvedNavBarPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final paint = Paint()..color = backgroundColor;
     final path = Path();
+
     final centerX = size.width / 2;
     const curveWidth = 50.0;
     const curveDepth = -25.0;
@@ -385,12 +357,17 @@ class _CurvedNavBarPainter extends CustomPainter {
     path.moveTo(0, size.height);
     path.lineTo(0, 0);
     path.lineTo(centerX - curveWidth, 0);
+
+    // The nice curve for the floating button
     path.quadraticBezierTo(centerX - 25, curveDepth, centerX, curveDepth);
     path.quadraticBezierTo(centerX + 25, curveDepth, centerX + curveWidth, 0);
+
     path.lineTo(size.width, 0);
     path.lineTo(size.width, size.height);
     path.close();
 
+    // Optional: Add shadow to the path itself for depth
+    canvas.drawShadow(path, Colors.black.withValues(alpha: 0.05), 4.0, true);
     canvas.drawPath(path, paint);
   }
 
