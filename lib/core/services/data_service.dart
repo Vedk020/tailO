@@ -3,91 +3,324 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../data/models/pet_model.dart';
 import '../../data/models/community_post.dart';
-
-import 'storage_service.dart';
-import 'auth_service.dart';
-import 'pet_service.dart';
+import 'esp32_service.dart'; // ✅ Brought back ESP32
+import '../../bootstrap/dependency_injection.dart'; // To access sl
 
 class DataService {
   static final DataService _instance = DataService._internal();
   factory DataService() => _instance;
   DataService._internal();
 
-  // --- SUB-SERVICES ---
-  final StorageService _storage = StorageService();
-  late final AuthService _auth;
-  late final PetService _petService;
+  List<Pet> _pets = [];
+  bool _isLoggedIn = false;
+  String _ownerName = "Agent Handler";
+  String _ownerEmail = "handler@tailo.com";
+  String _ownerPassword = "TAILO-GUEST-ACCESS-KEY";
+  String _ownerImage = "assets/images/pfp.jpeg";
 
-  // --- NOTIFIERS ---
-  ValueNotifier<String?> get selectedPetIdNotifier =>
-      _petService.selectedPetIdNotifier;
-  ValueNotifier<bool> get isLoggedInNotifier => _auth.isLoggedInNotifier;
+  // ✅ Brought back Hardware Service
+  late final Esp32Service _esp32;
 
+  // --- GLOBAL STATE ---
+  final ValueNotifier<String?> selectedPetIdNotifier = ValueNotifier(null);
   final ValueNotifier<List<Map<String, dynamic>>> remindersNotifier =
       ValueNotifier([]);
   final ValueNotifier<List<CommunityPost>> postsNotifier = ValueNotifier([]);
 
+  // ✅ Brought back Login Notifier (Fixes main.dart Error)
+  final ValueNotifier<bool> isLoggedInNotifier = ValueNotifier(false);
+
+  // --- GETTERS ---
+  List<Pet> get pets => _pets;
+  bool get isLoggedIn => _isLoggedIn;
+  String get ownerName => _ownerName;
+  String get ownerEmail => _ownerEmail;
+  String get ownerPassword => _ownerPassword;
+  String get ownerImage => _ownerImage;
+
+  Pet get activePet {
+    if (_pets.isEmpty) {
+      return Pet(
+        id: '0',
+        name: 'Unknown',
+        type: 'dog',
+        breed: '',
+        gender: '',
+        weight: 0.0, // ✅ Fixed: double instead of String
+        dob: DateTime.now(),
+        image: 'assets/images/appLogo.png',
+        battery: 1.0, // ✅ Added missing fields
+        heartRate: 0,
+        steps: 0,
+        calories: 0,
+        spo2: 0,
+        isConnected: false,
+      );
+    }
+    return _pets.firstWhere(
+      (p) => p.id == selectedPetIdNotifier.value,
+      orElse: () => _pets.first,
+    );
+  }
+
+  // --- HELPER: GET IMAGE PROVIDER ---
+  static ImageProvider getImageProvider(String path) {
+    if (path.startsWith('http')) return NetworkImage(path);
+    if (path.startsWith('assets')) return AssetImage(path);
+    return FileImage(File(path));
+  }
+
+  // --- STORAGE KEYS ---
+  static const String _storageKeyPets = 'tailO_pets_data';
+  static const String _storageKeyReminders = 'tailO_reminders_data';
+  static const String _loginKey = 'tailO_is_logged_in';
+  static const String _userKey = 'tailO_user_info';
+
   // --- INIT ---
-  Future<void> init({bool enableDemo = kDebugMode}) async {
-    await _storage.init();
-    _auth = AuthService(_storage);
-    await _auth.init();
-    _petService = PetService(_storage);
-    await _petService.init();
+  Future<void> init() async {
+    final prefs = await SharedPreferences.getInstance();
+    _isLoggedIn = prefs.getBool(_loginKey) ?? false;
+    isLoggedInNotifier.value = _isLoggedIn; // ✅ Sync notifier
 
-    _loadReminders();
+    // Init Hardware
+    _esp32 = sl<Esp32Service>();
 
-    if (enableDemo && _petService.pets.isEmpty) {
-      await _loadDemoData();
+    // Load User
+    final userInfo = prefs.getStringList(_userKey);
+    if (userInfo != null && userInfo.isNotEmpty) {
+      _ownerName = userInfo[0];
+      if (userInfo.length >= 2) _ownerEmail = userInfo[1];
+      if (userInfo.length >= 3) _ownerPassword = userInfo[2];
+      if (userInfo.length >= 4) _ownerImage = userInfo[3];
+    }
+
+    // Load Pets
+    final String? petsData = prefs.getString(_storageKeyPets);
+    if (petsData != null) {
+      _pets = (jsonDecode(petsData) as List)
+          .map((json) => Pet.fromJson(json))
+          .toList();
+    }
+
+    if (_pets.isNotEmpty && selectedPetIdNotifier.value == null) {
+      selectedPetIdNotifier.value = _pets.first.id;
+    }
+
+    // Load Reminders
+    final String? remindersData = prefs.getString(_storageKeyReminders);
+    if (remindersData != null) {
+      final List<dynamic> decoded = jsonDecode(remindersData);
+      remindersNotifier.value = decoded
+          .map(
+            (item) => {
+              ...item as Map<String, dynamic>,
+              'icon': _getIconData(item['iconCode']),
+            },
+          )
+          .toList();
+    } else {
+      remindersNotifier.value = [
+        {
+          'title': 'Evening Walk',
+          'time': '6:30 PM',
+          'freq': 'Daily',
+          'icon': LucideIcons.footprints,
+          'isCompleted': false,
+        },
+        {
+          'title': 'Dinner',
+          'time': '8:00 PM',
+          'freq': 'Daily',
+          'icon': LucideIcons.utensils,
+          'isCompleted': false,
+        },
+      ];
     }
   }
 
-  // --- GETTERS ---
-  bool get isLoggedIn => _auth.isLoggedIn;
-  String get ownerName => _auth.userName;
-  String get ownerEmail => _auth.userEmail;
-  String get ownerImage => _auth.userImage;
-  List<Pet> get pets => _petService.pets;
-  Pet get activePet => _petService.activePet;
+  // --- HARDWARE ACTIONS (Fixes UI Errors) ---
+  void connectHardware() => _esp32.startAlphaTesting();
+  void disconnectHardware() => _esp32.stopAlphaTesting();
 
-  // --- ACTIONS ---
+  // --- USER ACTIONS ---
   Future<void> setUserInfo({
     required String email,
-    required String name,
+    String? name,
     String? password,
     String? imagePath,
   }) async {
-    await _auth.updateProfile(name: name, email: email, imagePath: imagePath);
+    final prefs = await SharedPreferences.getInstance();
+    _ownerEmail = email;
+    if (password != null) _ownerPassword = password;
+    if (imagePath != null) _ownerImage = imagePath;
+
+    if (name != null && name.isNotEmpty) {
+      _ownerName = name;
+    } else {
+      if (email.contains('@')) {
+        String derived = email.split('@')[0];
+        _ownerName = derived[0].toUpperCase() + derived.substring(1);
+      } else {
+        _ownerName = "User";
+      }
+    }
+
+    await prefs.setStringList(_userKey, [
+      _ownerName,
+      _ownerEmail,
+      _ownerPassword,
+      _ownerImage,
+    ]);
   }
 
   Future<void> setLoginState(bool status) async {
-    if (status)
-      await _auth.login("dummy", "dummy");
-    else
-      await _auth.logout();
+    final prefs = await SharedPreferences.getInstance();
+    _isLoggedIn = status;
+    isLoggedInNotifier.value = status; // ✅ Sync notifier
+    await prefs.setBool(_loginKey, status);
   }
 
+  // --- LOGOUT ACTION ---
   Future<void> logout() async {
-    await _auth.logout();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_loginKey);
+    await prefs.remove(_userKey);
+    await prefs.remove(_storageKeyPets);
+    await prefs.remove(_storageKeyReminders);
+
+    _isLoggedIn = false;
+    isLoggedInNotifier.value = false;
+    _ownerName = "Agent Handler";
+    _ownerEmail = "handler@tailo.com";
+    _ownerPassword = "";
+    _ownerImage = "assets/images/pfp.jpeg";
+
+    _pets.clear();
+    selectedPetIdNotifier.value = null;
     remindersNotifier.value = [];
   }
 
-  void switchPet(String id) => _petService.switchPet(id);
-  Future<void> addPet(Pet pet) => _petService.addPet(pet);
-  Future<void> removePet(String id) => _petService.removePet(id);
+  // --- COMMUNITY ACTIONS ---
+  // ... (Your Community Post methods remain exactly the same here)
+  void addPost(String content, {String? image}) {
+    final newPost = CommunityPost(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      author: _ownerName,
+      timestamp: DateTime.now(),
+      content: content,
+      postImage: image,
+      likes: 0,
+      comments: 0,
+      isLiked: false,
+    );
+    postsNotifier.value = [newPost, ...postsNotifier.value];
+  }
 
-  // ✅ Now these methods exist in PetService
-  Future<void> setPetConnection(String id, bool status) =>
-      _petService.setPetConnection(id, status);
-  Future<void> addMedicalRecord(String petId, MedicalRecord record) =>
-      _petService.addMedicalRecord(petId, record);
-  Future<void> removeMedicalRecord(String petId, String recordId) =>
-      _petService.removeMedicalRecord(petId, recordId);
+  void togglePostLike(String postId) {
+    final currentPosts = List<CommunityPost>.from(postsNotifier.value);
+    final index = currentPosts.indexWhere((p) => p.id == postId);
+    if (index != -1) {
+      final post = currentPosts[index];
+      currentPosts[index] = CommunityPost(
+        id: post.id,
+        author: post.author,
+        timestamp: post.timestamp,
+        content: post.content,
+        postImage: post.postImage,
+        likes: post.isLiked ? post.likes - 1 : post.likes + 1,
+        comments: post.comments,
+        isLiked: !post.isLiked,
+      );
+      postsNotifier.value = currentPosts;
+    }
+  }
 
-  // --- REMINDERS ---
+  void addPostComment(String postId) {
+    final currentPosts = List<CommunityPost>.from(postsNotifier.value);
+    final index = currentPosts.indexWhere((p) => p.id == postId);
+    if (index != -1) {
+      final post = currentPosts[index];
+      currentPosts[index] = CommunityPost(
+        id: post.id,
+        author: post.author,
+        timestamp: post.timestamp,
+        content: post.content,
+        postImage: post.postImage,
+        likes: post.likes,
+        comments: post.comments + 1,
+        isLiked: post.isLiked,
+      );
+      postsNotifier.value = currentPosts;
+    }
+  }
+
+  // --- PET/MEDICAL ACTIONS ---
+  Future<void> addMedicalRecord(String petId, MedicalRecord record) async {
+    final index = _pets.indexWhere((p) => p.id == petId);
+    if (index != -1) {
+      _pets[index].medicalRecords.insert(0, record);
+      // ✅ Removed the weight logic here that was causing the MedicalRecord errors
+      await _savePets();
+      selectedPetIdNotifier.notifyListeners();
+    }
+  }
+
+  Future<void> removeMedicalRecord(String petId, String recordId) async {
+    final index = _pets.indexWhere((p) => p.id == petId);
+    if (index != -1) {
+      _pets[index].medicalRecords.removeWhere((r) => r.id == recordId);
+      await _savePets();
+      selectedPetIdNotifier.notifyListeners();
+    }
+  }
+
+  void switchPet(String id) => selectedPetIdNotifier.value = id;
+
+  Future<void> addPet(Pet pet) async {
+    _pets.add(pet);
+    selectedPetIdNotifier.value = pet.id;
+    await _savePets();
+  }
+
+  Future<void> removePet(String id) async {
+    _pets.removeWhere((p) => p.id == id);
+    if (selectedPetIdNotifier.value == id) {
+      selectedPetIdNotifier.value = _pets.isNotEmpty ? _pets.first.id : null;
+    }
+    await _savePets();
+  }
+
+  Future<void> setPetConnection(String petId, bool status) async {
+    final index = _pets.indexWhere((p) => p.id == petId);
+    if (index != -1) {
+      final old = _pets[index];
+      _pets[index] = Pet(
+        id: old.id,
+        name: old.name,
+        type: old.type,
+        breed: old.breed,
+        gender: old.gender,
+        weight: old.weight,
+        dob: old.dob,
+        image: old.image,
+        isConnected: status,
+        battery: old.battery,
+        heartRate: old.heartRate,
+        steps: old.steps,
+        calories: old.calories,
+        spo2: old.spo2,
+        medicalRecords: old.medicalRecords,
+      );
+      await _savePets();
+      selectedPetIdNotifier.notifyListeners();
+    }
+  }
+
+  // --- REMINDERS ACTIONS ---
   void addReminder(Map<String, dynamic> item) {
     remindersNotifier.value = List.from(remindersNotifier.value)
       ..insert(0, item);
@@ -108,131 +341,21 @@ class DataService {
     _saveReminders();
   }
 
-  // ✅ Fixed duplicate _saveReminders logic
+  // --- SAVERS & HELPERS ---
   Future<void> _saveReminders() async {
-    final data = remindersNotifier.value.map((r) {
-      final int codePoint = (r['icon'] as IconData).codePoint;
-      return {
-        'title': r['title'],
-        'time': r['time'],
-        'freq': r['freq'],
-        'isCompleted': r['isCompleted'],
-        'iconCode': codePoint,
-      };
-    }).toList();
-    await _storage.setString(StorageService.keyReminders, jsonEncode(data));
+    final prefs = await SharedPreferences.getInstance();
+    final data = remindersNotifier.value
+        .map((r) => {...r, 'iconCode': (r['icon'] as IconData).codePoint})
+        .toList();
+    await prefs.setString(_storageKeyReminders, jsonEncode(data));
   }
 
-  // ✅ Fixed duplicate _loadReminders logic
-  void _loadReminders() {
-    try {
-      final String? remindersData = _storage.getString(
-        StorageService.keyReminders,
-      );
-      if (remindersData != null) {
-        final List<dynamic> decoded = jsonDecode(remindersData);
-        remindersNotifier.value = decoded.map((item) {
-          final map = Map<String, dynamic>.from(item);
-          map['icon'] = _getIconData(map['iconCode']);
-          return map;
-        }).toList();
-      } else {
-        _loadDefaultReminders();
-      }
-    } catch (e) {
-      debugPrint("Error parsing reminders: $e");
-      _loadDefaultReminders();
-    }
-  }
-
-  void _loadDefaultReminders() {
-    remindersNotifier.value = [
-      {
-        'title': 'Evening Walk',
-        'time': '6:30 PM',
-        'freq': 'Daily',
-        'icon': LucideIcons.footprints,
-        'isCompleted': false,
-      },
-      {
-        'title': 'Dinner',
-        'time': '8:00 PM',
-        'freq': 'Daily',
-        'icon': LucideIcons.utensils,
-        'isCompleted': false,
-      },
-    ];
-  }
-
-  // --- COMMUNITY ---
-  void addPost(String content, {String? image}) {
-    final newPost = CommunityPost(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      author: ownerName,
-      timestamp: DateTime.now(),
-      content: content,
-      postImage: image,
-      likes: 0,
-      comments: 0,
-      isLiked: false,
+  Future<void> _savePets() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _storageKeyPets,
+      jsonEncode(_pets.map((p) => p.toJson()).toList()),
     );
-    final currentPosts = List<CommunityPost>.from(postsNotifier.value);
-    postsNotifier.value = [newPost, ...currentPosts];
-  }
-
-  void togglePostLike(String postId) {
-    final list = List<CommunityPost>.from(postsNotifier.value);
-    final index = list.indexWhere((p) => p.id == postId);
-    if (index != -1) {
-      final oldPost = list[index];
-      list[index] = oldPost.copyWith(
-        isLiked: !oldPost.isLiked,
-        likes: oldPost.isLiked ? oldPost.likes - 1 : oldPost.likes + 1,
-      );
-      postsNotifier.value = list;
-    }
-  }
-
-  void addPostComment(String postId) {
-    final list = List<CommunityPost>.from(postsNotifier.value);
-    final index = list.indexWhere((p) => p.id == postId);
-    if (index != -1) {
-      list[index] = list[index].copyWith(comments: list[index].comments + 1);
-      postsNotifier.value = list;
-    }
-  }
-
-  // --- HELPERS ---
-  Future<void> _loadDemoData() async {
-    final demoPet = Pet(
-      id: "#12450",
-      name: "Rex",
-      type: "dog",
-      breed: "Golden Retriever",
-      gender: "Male",
-      weight: 30.0,
-      dob: DateTime.now().subtract(const Duration(days: 365 * 3)),
-      image: "assets/images/appLogo.png",
-      isConnected: true,
-      battery: 0.85,
-      heartRate: 72,
-      steps: 5400,
-      calories: 350,
-      spo2: 98,
-    );
-    // ✅ Now this works because we added it to PetService
-    await _petService.injectDemoData([demoPet]);
-
-    postsNotifier.value = [
-      CommunityPost(
-        id: '1',
-        author: 'TailO Team',
-        timestamp: DateTime.now(),
-        content: 'Welcome to the community!',
-        likes: 10,
-        isLiked: false,
-      ),
-    ];
   }
 
   IconData _getIconData(int? code) {
@@ -240,9 +363,59 @@ class DataService {
     return IconData(code, fontFamily: 'Lucide', fontPackage: 'lucide_icons');
   }
 
-  static ImageProvider getImageProvider(String path) {
-    if (path.startsWith('http')) return NetworkImage(path);
-    if (path.startsWith('assets')) return AssetImage(path);
-    return FileImage(File(path));
+  Future<void> loadDemoData() async {
+    if (postsNotifier.value.isEmpty) {
+      postsNotifier.value = [
+        CommunityPost(
+          id: '1',
+          author: "Aryan",
+          timestamp: DateTime.now().subtract(const Duration(hours: 2)),
+          content: "Look at him go! 🚀",
+          postImage: "https://placedog.net/640/480?random",
+          likes: 45,
+          comments: 12,
+        ),
+        CommunityPost(
+          id: '2',
+          author: "Abhishek",
+          timestamp: DateTime.now().subtract(const Duration(hours: 5)),
+          content: "Lazy Sunday... 😴",
+          postImage: "https://placedog.net/600/400?id=20",
+          likes: 128,
+          comments: 45,
+        ),
+      ];
+    }
+    if (_pets.isNotEmpty) return;
+
+    final rex = Pet(
+      id: "#12450",
+      name: "Rex",
+      type: "dog",
+      breed: "Golden Retriever",
+      gender: "Male",
+      weight: 30.0, // ✅ Fixed: Double
+      dob: DateTime.now().subtract(const Duration(days: 365 * 3)),
+      image: "assets/images/appLogo.png",
+      isConnected: true,
+      battery: 0.69,
+      heartRate: 78, // ✅ Fixed: Int
+      steps: 6240, // ✅ Fixed: Int
+      calories: 410, // ✅ Fixed: Int
+      spo2: 98, // ✅ Fixed: Int
+      medicalRecords: [
+        MedicalRecord(
+          id: "1",
+          type: "Vet",
+          title: "Annual Checkup",
+          date: DateTime.now().subtract(const Duration(days: 120)),
+          notes: "Healthy, slightly active.",
+        ),
+      ],
+    );
+
+    _pets.addAll([rex]);
+    selectedPetIdNotifier.value = _pets.first.id;
+    await _savePets();
   }
 }

@@ -1,11 +1,10 @@
 import 'package:flutter/foundation.dart';
-import '../../../core/services/auth_service.dart';
+import '../../../core/services/data_service.dart'; // ✅ Added DataService
 import '../../../core/theme/theme_controller.dart';
 
 class SettingsViewModel extends ChangeNotifier {
-  final AuthService _authService;
-
-  SettingsViewModel(this._authService);
+  // ✅ Removed AuthService dependency.
+  SettingsViewModel();
 
   bool get isDark => ThemeController.isDark;
 
@@ -15,6 +14,7 @@ class SettingsViewModel extends ChangeNotifier {
   }
 
   Future<void> logout() async {
-    await _authService.logout();
+    // ✅ Using DataService to handle the logout and cache clearing
+    await DataService().logout();
   }
 }

@@ -87,6 +87,7 @@ class _MainScaffoldState extends State<MainScaffold> {
 // ==========================================
 // 🧩 COMPONENT: CUSTOM APP BAR
 // ==========================================
+
 class _TailOAppBar extends StatelessWidget {
   const _TailOAppBar();
 
@@ -94,19 +95,18 @@ class _TailOAppBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    // Listen to Pet changes to update the Avatar in AppBar
+    // This listener rebuilds the AppBar whenever the pet's connection status changes!
     return ValueListenableBuilder<String?>(
       valueListenable: DataService().selectedPetIdNotifier,
       builder: (context, _, __) {
-        // Safe getter for the active pet image
         final userImage = DataService().ownerImage;
+        final bool isConnected = DataService().activePet.isConnected;
 
         return Container(
           padding: const EdgeInsets.only(top: 45, left: 20, right: 20),
           color: theme.scaffoldBackgroundColor,
           child: Row(
             children: [
-              // Logo Text
               Text(
                 "tail",
                 style: TextStyle(
@@ -125,41 +125,47 @@ class _TailOAppBar extends StatelessWidget {
               ),
               const Spacer(),
 
-              // QR Scanner (Placeholder)
+              // ✅ NEW BLUETOOTH BUTTON
               IconButton(
                 icon: Icon(
-                  LucideIcons.scanLine,
+                  isConnected
+                      ? LucideIcons.bluetoothConnected
+                      : LucideIcons.bluetooth,
                   size: 22,
-                  color: theme.iconTheme.color,
+                  color: isConnected
+                      ? TailOColors.coral
+                      : theme.iconTheme.color,
                 ),
-                tooltip: "Scan Device",
+                tooltip: isConnected ? "Disconnect Collar" : "Connect Collar",
                 onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text("QR Scanner ready for integration!"),
-                    ),
-                  );
+                  if (isConnected) {
+                    DataService().disconnectHardware();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text("Collar Disconnected")),
+                    );
+                  } else {
+                    DataService().connectHardware();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text("Connecting to TailO Collar..."),
+                      ),
+                    );
+                  }
                 },
               ),
 
-              // Settings Button
               IconButton(
                 icon: Icon(
                   LucideIcons.settings,
                   size: 22,
                   color: theme.iconTheme.color,
                 ),
-                tooltip: "Settings",
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const SettingsPage()),
-                  );
-                },
+                onPressed: () => Navigator.pushNamed(
+                  context,
+                  '/settings',
+                ), // Assuming you set up the route!
               ),
               const SizedBox(width: 8),
-
-              // User Avatar
               CircleAvatar(
                 radius: 18,
                 backgroundColor: theme.cardColor,

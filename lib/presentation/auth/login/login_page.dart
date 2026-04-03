@@ -1,60 +1,128 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart'; // REQUIRED
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
-import '../../../../bootstrap/dependency_injection.dart';
-// Core
-import '../../../../core/theme/colors.dart';
-import '../../home/main_scaffold.dart';
+
+import '../../../core/theme/colors.dart';
+import '../../../core/services/data_service.dart';
 import '../signup/signup_flow.dart';
+import '../../home/main_scaffold.dart';
 
-// Logic
-import 'login_view_model.dart';
-import 'login_state.dart';
-
-class LoginPage extends StatelessWidget {
+class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      // ✅ FIX: Use sl() to create the ViewModel with dependencies
-      create: (_) => sl<LoginViewModel>(),
-      child: const _LoginContent(),
-    );
-  }
+  State<LoginPage> createState() => _LoginPageState();
 }
 
-class _LoginContent extends StatelessWidget {
-  const _LoginContent();
+class _LoginPageState extends State<LoginPage> {
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+
+  // --- QR SCANNER MODAL ---
+  void _openQrScanner() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.black,
+      builder: (ctx) {
+        return SizedBox(
+          height: MediaQuery.of(context).size.height * 0.8,
+          child: Column(
+            children: [
+              AppBar(
+                backgroundColor: Colors.black,
+                title: const Text(
+                  "Scan Login Key",
+                  style: TextStyle(color: Colors.white),
+                ),
+                leading: IconButton(
+                  icon: const Icon(LucideIcons.x, color: Colors.white),
+                  onPressed: () => Navigator.pop(ctx),
+                ),
+              ),
+              Expanded(
+                child: MobileScanner(
+                  onDetect: (capture) {
+                    final List<Barcode> barcodes = capture.barcodes;
+                    if (barcodes.isNotEmpty &&
+                        barcodes.first.rawValue != null) {
+                      _handleQrCode(barcodes.first.rawValue!);
+                      Navigator.pop(ctx);
+                    }
+                  },
+                ),
+              ),
+              const Padding(
+                padding: EdgeInsets.all(20),
+                child: Text(
+                  "Align the QR code within the frame",
+                  style: TextStyle(color: Colors.white70),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _handleQrCode(String code) {
+    try {
+      final data = jsonDecode(code);
+      if (data['username'] != null && data['password'] != null) {
+        setState(() {
+          _emailController.text = data['username'];
+          _passwordController.text = data['password'];
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Credentials filled from QR!"),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Invalid QR Code"),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _performLogin() async {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text.trim();
+
+    // ✅ VALIDATION: Prevent empty logins
+    if (email.isEmpty || password.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Please enter your email and password."),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    // Save Credentials in DataService
+    await DataService().setUserInfo(email: email, password: password);
+    await DataService().setLoginState(true);
+
+    if (mounted) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const MainScaffold()),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final viewModel = context.watch<LoginViewModel>();
-    final state = viewModel.state;
-
-    // Listener for Side Effects (Navigation/Snackbars)
-    // Note: Ideally use a mixin or specific listener widget for this in prod
-    if (state.isSuccess) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const MainScaffold()),
-        );
-      });
-    }
-
-    if (state.errorMessage != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(state.errorMessage!),
-            backgroundColor: TailOColors.error,
-          ),
-        );
-      });
-    }
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -65,14 +133,12 @@ class _LoginContent extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const SizedBox(height: 40),
-
-              // Logo
               Center(
                 child: Container(
                   height: 80,
                   width: 80,
                   decoration: BoxDecoration(
-                    color: TailOColors.coral.withValues(alpha: 0.1),
+                    color: TailOColors.coral.withOpacity(0.1),
                     shape: BoxShape.circle,
                   ),
                   child: Padding(
@@ -94,24 +160,24 @@ class _LoginContent extends StatelessWidget {
               ),
               const SizedBox(height: 40),
 
-              // Inputs
+              // INPUTS
               _buildTextField(
-                theme,
+                context,
                 "Email or Phone",
                 LucideIcons.mail,
-                viewModel.emailController,
+                controller: _emailController,
               ),
               const SizedBox(height: 16),
               _buildTextField(
-                theme,
+                context,
                 "Password",
                 LucideIcons.lock,
-                viewModel.passwordController,
                 isObscure: true,
+                controller: _passwordController,
               ),
 
               const SizedBox(height: 12),
-              Align(
+              const Align(
                 alignment: Alignment.centerRight,
                 child: Text(
                   "Forgot Password?",
@@ -125,12 +191,11 @@ class _LoginContent extends StatelessWidget {
 
               const Spacer(),
 
-              // Action Buttons
+              // ACTION BUTTONS ROW
               Row(
                 children: [
-                  // QR Button
                   InkWell(
-                    onTap: () => _openQrScanner(context, viewModel),
+                    onTap: _openQrScanner,
                     child: Container(
                       height: 56,
                       width: 56,
@@ -146,30 +211,26 @@ class _LoginContent extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 12),
-                  // Login Button
                   Expanded(
                     child: SizedBox(
                       height: 56,
                       child: ElevatedButton(
-                        onPressed: state.isLoading ? null : viewModel.login,
+                        onPressed: _performLogin,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: TailOColors.coral,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(16),
                           ),
+                          elevation: 4,
                         ),
-                        child: state.isLoading
-                            ? const CircularProgressIndicator(
-                                color: Colors.white,
-                              )
-                            : const Text(
-                                "Log In",
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
-                                ),
-                              ),
+                        child: const Text(
+                          "Log In",
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -178,7 +239,6 @@ class _LoginContent extends StatelessWidget {
 
               const SizedBox(height: 16),
 
-              // Footer Links
               Column(
                 children: [
                   Row(
@@ -191,7 +251,10 @@ class _LoginContent extends StatelessWidget {
                       GestureDetector(
                         onTap: () => Navigator.push(
                           context,
-                          MaterialPageRoute(builder: (_) => const SignupFlow()),
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                const SignupFlow(isAddingAnotherPet: false),
+                          ),
                         ),
                         child: Text(
                           "Sign Up",
@@ -205,7 +268,19 @@ class _LoginContent extends StatelessWidget {
                   ),
                   const SizedBox(height: 24),
                   TextButton(
-                    onPressed: state.isLoading ? null : viewModel.loginAsGuest,
+                    onPressed: () async {
+                      await DataService().setUserInfo(email: "guest@tailo.com");
+                      await DataService().loadDemoData();
+                      await DataService().setLoginState(true);
+                      if (context.mounted) {
+                        Navigator.pushReplacement(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const MainScaffold(),
+                          ),
+                        );
+                      }
+                    },
                     child: const Text(
                       "Skip & Sign in Later",
                       style: TextStyle(
@@ -225,12 +300,13 @@ class _LoginContent extends StatelessWidget {
   }
 
   Widget _buildTextField(
-    ThemeData theme,
+    BuildContext context,
     String hint,
-    IconData icon,
-    TextEditingController controller, {
+    IconData icon, {
     bool isObscure = false,
+    TextEditingController? controller,
   }) {
+    final theme = Theme.of(context);
     return Container(
       decoration: BoxDecoration(
         color: theme.cardColor,
@@ -247,43 +323,6 @@ class _LoginContent extends StatelessWidget {
           icon: Icon(icon, color: TailOColors.muted, size: 20),
           hintText: hint,
           hintStyle: const TextStyle(color: TailOColors.muted),
-        ),
-      ),
-    );
-  }
-
-  void _openQrScanner(BuildContext context, LoginViewModel viewModel) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.black,
-      builder: (ctx) => SizedBox(
-        height: MediaQuery.of(context).size.height * 0.8,
-        child: Column(
-          children: [
-            AppBar(
-              backgroundColor: Colors.black,
-              title: const Text(
-                "Scan Login Key",
-                style: TextStyle(color: Colors.white),
-              ),
-              leading: IconButton(
-                icon: const Icon(LucideIcons.x, color: Colors.white),
-                onPressed: () => Navigator.pop(ctx),
-              ),
-            ),
-            Expanded(
-              child: MobileScanner(
-                onDetect: (capture) {
-                  final barcodes = capture.barcodes;
-                  if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
-                    viewModel.handleQrCode(barcodes.first.rawValue!);
-                    Navigator.pop(ctx);
-                  }
-                },
-              ),
-            ),
-          ],
         ),
       ),
     );

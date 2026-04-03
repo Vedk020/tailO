@@ -3,15 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
-// Core
 import '../../../core/theme/colors.dart';
 import '../../../core/services/data_service.dart';
+import '../../../data/models/pet_model.dart';
 import '../../home/main_scaffold.dart';
-import '../../../data/models/pet_model.dart'; // Import Pet Model
-
-// Steps (Ensure these files exist in signup_steps folder)
-import 'signup_steps/owner_step.dart';
-import 'signup_steps/pet_type_step.dart';
 
 class SignupFlow extends StatefulWidget {
   final bool isAddingAnotherPet;
@@ -23,285 +18,311 @@ class SignupFlow extends StatefulWidget {
 
 class _SignupFlowState extends State<SignupFlow> {
   int _currentStep = 0;
-  bool _isLoading = false;
+  final int _totalSteps = 7;
 
-  // --- FORM STATE ---
-  // Owner (Only if not adding another pet)
+  // Input Controllers
   final TextEditingController _ownerNameController = TextEditingController();
-  final TextEditingController _ownerEmailController = TextEditingController();
+  final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
-
-  // Pet
-  final TextEditingController _nameController = TextEditingController();
-  final TextEditingController _breedController = TextEditingController();
+  final TextEditingController _petNameController = TextEditingController();
   final TextEditingController _weightController = TextEditingController();
 
-  String _selectedGender = "Male";
-  DateTime _selectedDob = DateTime.now();
-  File? _selectedImage;
+  // Images
+  File? _ownerImageFile;
+  File? _petImageFile;
+  final ImagePicker _picker = ImagePicker();
 
-  // Custom Enum for local UI logic (matches your Step files)
-  PetType _selectedType = PetType.dog;
+  // Selection Data
+  String? _selectedPetType;
+  String? _selectedGender;
+  String? _selectedBreed;
+  DateTime? _selectedDob;
+  bool _isSterilized = false;
+
+  final List<String> _dogBreeds = [
+    "Golden Retriever",
+    "German Shepherd",
+    "Labrador",
+    "Bulldog",
+    "Poodle",
+    "Beagle",
+    "Rottweiler",
+    "Dachshund",
+    "Pug",
+    "Husky",
+    "Boxer",
+    "Shih Tzu",
+    "Other",
+  ];
+  final List<String> _catBreeds = [
+    "Persian",
+    "Siamese",
+    "Maine Coon",
+    "Ragdoll",
+    "Bengal",
+    "Sphynx",
+    "British Shorthair",
+    "Abyssinian",
+    "Scottish Fold",
+    "Other",
+  ];
 
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-
-    // If adding another pet, skip Owner Step (Step 0)
-    final int effectiveStep = widget.isAddingAnotherPet
-        ? _currentStep + 1
-        : _currentStep;
-
-    return Scaffold(
-      backgroundColor: theme.scaffoldBackgroundColor,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          icon: Icon(LucideIcons.chevronLeft, color: theme.iconTheme.color),
-          onPressed: () {
-            if (_currentStep > 0) {
-              setState(() => _currentStep--);
-            } else {
-              Navigator.pop(context);
-            }
-          },
-        ),
-        title: Text(
-          "Step ${effectiveStep + 1} of ${widget.isAddingAnotherPet ? 2 : 3}",
-          style: TextStyle(
-            color: theme.textTheme.bodyLarge?.color,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-      ),
-      body: Column(
-        children: [
-          // Progress Bar
-          LinearProgressIndicator(
-            value: (effectiveStep + 1) / (widget.isAddingAnotherPet ? 2 : 3),
-            backgroundColor: theme.dividerColor,
-            color: TailOColors.coral,
-          ),
-
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: _buildStepContent(),
-            ),
-          ),
-
-          // Navigation Buttons
-          Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Row(
-              children: [
-                if (_currentStep > 0)
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: _isLoading
-                          ? null
-                          : () => setState(() => _currentStep--),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        side: BorderSide(color: theme.dividerColor),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      child: Text(
-                        "Back",
-                        style: TextStyle(
-                          color: theme.textTheme.bodyLarge?.color,
-                        ),
-                      ),
-                    ),
-                  ),
-                if (_currentStep > 0) const SizedBox(width: 16),
-                Expanded(
-                  flex: 2,
-                  child: ElevatedButton(
-                    onPressed: _isLoading ? null : _onNext,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: TailOColors.coral,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    child: _isLoading
-                        ? const SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(
-                              color: Colors.white,
-                              strokeWidth: 2,
-                            ),
-                          )
-                        : Text(
-                            _isLastStep() ? "Finish" : "Next",
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
-                            ),
-                          ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStepContent() {
-    // If adding another pet, we treat our internal step 0 as the "Pet Type" step
-    // Internal Logic:
-    // Case A (New User): Step 0 = Owner, Step 1 = Type, Step 2 = Details
-    // Case B (Add Pet):  Step 0 = Type,  Step 1 = Details
-
+  void initState() {
+    super.initState();
     if (widget.isAddingAnotherPet) {
-      if (_currentStep == 0) return _buildPetTypeStep();
-      return _buildPetDetailsStep();
-    } else {
-      if (_currentStep == 0) return _buildOwnerStep();
-      if (_currentStep == 1) return _buildPetTypeStep();
-      return _buildPetDetailsStep();
+      _currentStep = 2; // Skip owner steps if just adding a pet
     }
   }
 
-  // --- STEPS UI ---
-  // (Assuming you have these widgets in separate files, I'll inline simplified versions to ensure it compiles)
-
-  Widget _buildOwnerStep() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          "Let's get to know you",
-          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 24),
-        _buildTextField("Your Name", _ownerNameController),
-        const SizedBox(height: 16),
-        _buildTextField("Email", _ownerEmailController),
-        const SizedBox(height: 16),
-        _buildTextField("Password", _passwordController, isObscure: true),
-      ],
+  Future<void> _pickImage(bool isOwner) async {
+    final XFile? pickedFile = await _picker.pickImage(
+      source: ImageSource.gallery,
     );
+    if (pickedFile != null) {
+      setState(() {
+        if (isOwner)
+          _ownerImageFile = File(pickedFile.path);
+        else
+          _petImageFile = File(pickedFile.path);
+      });
+    }
   }
 
-  Widget _buildPetTypeStep() {
-    return Column(
-      children: [
-        const Text(
-          "What kind of pet do you have?",
-          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 24),
-        Row(
-          children: [
-            _buildTypeCard(PetType.dog, "Dog", LucideIcons.dog),
-            const SizedBox(width: 16),
-            _buildTypeCard(PetType.cat, "Cat", LucideIcons.cat),
-          ],
-        ),
-      ],
-    );
+  // --- NAVIGATION LOGIC ---
+  void _nextStep() {
+    String? error;
+    switch (_currentStep) {
+      case 0:
+        if (_ownerNameController.text.trim().isEmpty)
+          error = "Please enter your name.";
+        else if (_emailController.text.trim().isEmpty)
+          error = "Please enter your email.";
+        else if (!_emailController.text.contains('@'))
+          error = "Enter a valid email.";
+        break;
+      case 1:
+        if (_passwordController.text.length < 6)
+          error = "Password must be at least 6 chars.";
+        break;
+      case 2:
+        if (_selectedPetType == null) error = "Please select an Agent type.";
+        break;
+      case 3:
+        if (_petNameController.text.trim().isEmpty)
+          error = "Please enter the Agent's name.";
+        break;
+      case 4:
+        if (_selectedDob == null) error = "Please select the birth date.";
+        break;
+      case 5:
+        if (_selectedBreed == null)
+          error = "Please select a breed.";
+        else if (_weightController.text.trim().isEmpty)
+          error = "Please enter the weight.";
+        break;
+      case 6:
+        if (_selectedGender == null) error = "Please select the gender.";
+        break;
+    }
+
+    if (error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    if (_currentStep < _totalSteps - 1) {
+      setState(() => _currentStep++);
+    } else {
+      _generateSmartCard();
+    }
   }
 
-  Widget _buildTypeCard(PetType type, String label, IconData icon) {
-    final isSelected = _selectedType == type;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => setState(() => _selectedType = type),
-        child: Container(
-          height: 120,
-          decoration: BoxDecoration(
-            color: isSelected
-                ? TailOColors.coral.withValues(alpha: 0.1)
-                : Theme.of(context).cardColor,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: isSelected
-                  ? TailOColors.coral
-                  : Theme.of(context).dividerColor,
-              width: 2,
+  void _prevStep() {
+    if (widget.isAddingAnotherPet && _currentStep == 2)
+      Navigator.pop(context);
+    else if (_currentStep > 0)
+      setState(() => _currentStep--);
+    else
+      Navigator.pop(context);
+  }
+
+  // --- DATE PICKER ---
+  Future<void> _selectDate(BuildContext context) async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now().subtract(const Duration(days: 365)),
+      firstDate: DateTime(2000),
+      lastDate: DateTime.now(),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.dark(
+              primary: TailOColors.coral,
+              onPrimary: Colors.white,
+              surface: Color(0xFF1C1C1E),
+              onSurface: Colors.white,
             ),
           ),
+          child: child!,
+        );
+      },
+    );
+    if (picked != null) setState(() => _selectedDob = picked);
+  }
+
+  // --- SAVE & FINISH ---
+  void _generateSmartCard() async {
+    if (!widget.isAddingAnotherPet) {
+      await DataService().setUserInfo(
+        name: _ownerNameController.text.trim(),
+        email: _emailController.text.trim(),
+        password: _passwordController.text.trim(),
+        imagePath: _ownerImageFile?.path,
+      );
+    }
+
+    // 2. Create Agent
+    final newPet = Pet(
+      id: "#${(10000 + DateTime.now().millisecondsSinceEpoch % 90000)}",
+      name: _petNameController.text.trim(),
+      type: _selectedPetType!,
+      breed: _selectedBreed!,
+      gender: _selectedGender!,
+
+      // ✅ FIXED: Parse string to double (fallback to 0.0 if empty/invalid)
+      weight: double.tryParse(_weightController.text.trim()) ?? 0.0,
+
+      dob: _selectedDob!,
+      image: _petImageFile?.path ?? "assets/images/appLogo.png",
+      isConnected: false, // Default to disconnected
+      battery: 1.0, // 100% battery default
+      // ✅ ADDED: Default integer values for the hardware vitals
+      heartRate: 0,
+      steps: 0,
+      calories: 0,
+      spo2: 0,
+    );
+
+    await DataService().addPet(newPet);
+
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => Dialog(
+        backgroundColor: Theme.of(context).cardColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        child: const Padding(
+          padding: EdgeInsets.all(24.0),
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(
-                icon,
-                size: 40,
-                color: isSelected ? TailOColors.coral : TailOColors.muted,
-              ),
-              const SizedBox(height: 8),
+              CircularProgressIndicator(color: TailOColors.coral),
+              SizedBox(height: 20),
               Text(
-                label,
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: isSelected ? TailOColors.coral : TailOColors.muted,
-                ),
+                "Generating SmartCard...",
+                style: TextStyle(fontWeight: FontWeight.bold),
               ),
             ],
           ),
         ),
       ),
     );
+
+    Future.delayed(const Duration(seconds: 2), () async {
+      Navigator.pop(context);
+      if (widget.isAddingAnotherPet) {
+        Navigator.pop(context);
+      } else {
+        await DataService().setLoginState(true);
+        if (mounted) {
+          Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(builder: (_) => const MainScaffold()),
+            (route) => false,
+          );
+        }
+      }
+    });
   }
 
-  Widget _buildPetDetailsStep() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Center(
-          child: GestureDetector(
-            onTap: _pickImage,
-            child: CircleAvatar(
-              radius: 50,
-              backgroundColor: Theme.of(context).cardColor,
-              backgroundImage: _selectedImage != null
-                  ? FileImage(_selectedImage!)
-                  : null,
-              child: _selectedImage == null
-                  ? const Icon(
-                      LucideIcons.camera,
-                      size: 30,
-                      color: TailOColors.muted,
-                    )
-                  : null,
-            ),
-          ),
-        ),
-        const SizedBox(height: 24),
-        _buildTextField("Pet's Name", _nameController),
-        const SizedBox(height: 16),
-        _buildTextField("Breed", _breedController),
-        const SizedBox(height: 16),
-        Row(
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final effectiveSteps = widget.isAddingAnotherPet ? 5 : _totalSteps;
+    final currentEffectiveStep = widget.isAddingAnotherPet
+        ? _currentStep - 2
+        : _currentStep;
+    final progress = (currentEffectiveStep + 1) / effectiveSteps;
+
+    return Scaffold(
+      backgroundColor: theme.scaffoldBackgroundColor,
+      body: SafeArea(
+        child: Column(
           children: [
-            Expanded(
-              child: _buildTextField(
-                "Weight (kg)",
-                _weightController,
-                isNumber: true,
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Row(
+                children: [
+                  IconButton(
+                    icon: Icon(
+                      LucideIcons.arrowLeft,
+                      color: theme.iconTheme.color,
+                    ),
+                    onPressed: _prevStep,
+                  ),
+                  Expanded(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: LinearProgressIndicator(
+                        value: progress.clamp(0.0, 1.0),
+                        backgroundColor: theme.dividerColor,
+                        color: TailOColors.coral,
+                        minHeight: 8,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 48),
+                ],
               ),
             ),
-            const SizedBox(width: 16),
             Expanded(
-              child: GestureDetector(
-                onTap: _pickDate,
-                child: AbsorbPointer(
-                  child: _buildTextField(
-                    "Birthday",
-                    TextEditingController(
-                      text:
-                          "${_selectedDob.day}/${_selectedDob.month}/${_selectedDob.year}",
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: _buildStepContent(theme),
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: theme.scaffoldBackgroundColor,
+                border: Border(top: BorderSide(color: theme.dividerColor)),
+              ),
+              child: SizedBox(
+                width: double.infinity,
+                height: 56,
+                child: ElevatedButton(
+                  onPressed: _nextStep,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: TailOColors.coral,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    elevation: 0,
+                  ),
+                  child: Text(
+                    _currentStep == _totalSteps - 1
+                        ? "GENERATE CARD"
+                        : "CONTINUE",
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                      letterSpacing: 1,
                     ),
                   ),
                 ),
@@ -309,105 +330,401 @@ class _SignupFlowState extends State<SignupFlow> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildStepContent(ThemeData theme) {
+    switch (_currentStep) {
+      case 0:
+        return _buildMascotStep(
+          theme,
+          "Welcome! Tap the photo to add your picture.",
+          Column(
+            children: [
+              GestureDetector(
+                onTap: () => _pickImage(true),
+                child: CircleAvatar(
+                  radius: 50,
+                  backgroundColor: theme.cardColor,
+                  backgroundImage: _ownerImageFile != null
+                      ? FileImage(_ownerImageFile!)
+                      : null,
+                  child: _ownerImageFile == null
+                      ? const Icon(
+                          LucideIcons.camera,
+                          size: 30,
+                          color: TailOColors.muted,
+                        )
+                      : null,
+                ),
+              ),
+              const SizedBox(height: 24),
+              _buildTextField(
+                theme,
+                "Your Name",
+                _ownerNameController,
+                LucideIcons.user,
+              ),
+              const SizedBox(height: 16),
+              _buildTextField(
+                theme,
+                "Email Address",
+                _emailController,
+                LucideIcons.mail,
+                keyboardType: TextInputType.emailAddress,
+              ),
+            ],
+          ),
+        );
+      case 1:
+        return _buildMascotStep(
+          theme,
+          "Great! Now create a secure password.",
+          _buildTextField(
+            theme,
+            "Password",
+            _passwordController,
+            LucideIcons.lock,
+            isObscure: true,
+          ),
+        );
+      case 2:
+        return _buildMascotStep(
+          theme,
+          "Choose your Agent type!",
+          Row(
+            children: [
+              Expanded(
+                child: _buildSelectableCard(
+                  theme,
+                  "Dog",
+                  LucideIcons.dog,
+                  _selectedPetType == 'dog',
+                  () => setState(() {
+                    _selectedPetType = 'dog';
+                    _selectedBreed = null;
+                  }),
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: _buildSelectableCard(
+                  theme,
+                  "Cat",
+                  LucideIcons.cat,
+                  _selectedPetType == 'cat',
+                  () => setState(() {
+                    _selectedPetType = 'cat';
+                    _selectedBreed = null;
+                  }),
+                ),
+              ),
+            ],
+          ),
+        );
+      case 3:
+        return _buildMascotStep(
+          theme,
+          "Upload their best photo & name!",
+          Column(
+            children: [
+              GestureDetector(
+                onTap: () => _pickImage(false),
+                child: CircleAvatar(
+                  radius: 50,
+                  backgroundColor: theme.cardColor,
+                  backgroundImage: _petImageFile != null
+                      ? FileImage(_petImageFile!)
+                      : null,
+                  child: _petImageFile == null
+                      ? const Icon(
+                          LucideIcons.camera,
+                          size: 30,
+                          color: TailOColors.muted,
+                        )
+                      : null,
+                ),
+              ),
+              const SizedBox(height: 24),
+              _buildTextField(
+                theme,
+                "Agent Name",
+                _petNameController,
+                LucideIcons.pencil,
+              ),
+            ],
+          ),
+        );
+      case 4:
+        return _buildMascotStep(
+          theme,
+          "When is ${_petNameController.text.isEmpty ? 'their' : _petNameController.text}'s birthday?",
+          GestureDetector(
+            onTap: () => _selectDate(context),
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: theme.cardColor,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: theme.dividerColor, width: 1.5),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    _selectedDob == null
+                        ? "Select Date"
+                        : "${_selectedDob!.day}/${_selectedDob!.month}/${_selectedDob!.year}",
+                    style: TextStyle(
+                      fontSize: 18,
+                      color: theme.textTheme.bodyLarge?.color,
+                    ),
+                  ),
+                  const Icon(LucideIcons.calendar, color: TailOColors.coral),
+                ],
+              ),
+            ),
+          ),
+        );
+      case 5:
+        return _buildMascotStep(
+          theme,
+          "Tell us more details about your agent.",
+          Column(
+            children: [
+              _buildDropdownField(
+                theme,
+                "Select Breed",
+                _selectedPetType == 'cat' ? _catBreeds : _dogBreeds,
+                LucideIcons.dna,
+              ),
+              const SizedBox(height: 16),
+              _buildTextField(
+                theme,
+                "Weight (kg)",
+                _weightController,
+                LucideIcons.scale,
+                keyboardType: TextInputType.number,
+              ),
+            ],
+          ),
+        );
+      case 6:
+        return _buildMascotStep(
+          theme,
+          "Almost done! Gender & Sterilization.",
+          Column(
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildSelectableCard(
+                      theme,
+                      "Male",
+                      LucideIcons.moveUpRight,
+                      _selectedGender == 'Male',
+                      () => setState(() => _selectedGender = 'Male'),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: _buildSelectableCard(
+                      theme,
+                      "Female",
+                      LucideIcons.moveDownLeft,
+                      _selectedGender == 'Female',
+                      () => setState(() => _selectedGender = 'Female'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: theme.cardColor,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: theme.dividerColor),
+                ),
+                child: SwitchListTile(
+                  title: Text(
+                    "Sterilized?",
+                    style: TextStyle(color: theme.textTheme.bodyLarge?.color),
+                  ),
+                  activeColor: TailOColors.coral,
+                  value: _isSterilized,
+                  onChanged: (val) => setState(() => _isSterilized = val),
+                ),
+              ),
+            ],
+          ),
+        );
+      default:
+        return Container();
+    }
+  }
+
+  // --- REUSABLE WIDGETS ---
+  Widget _buildMascotStep(ThemeData theme, String speech, Widget content) {
+    return Column(
+      children: [
+        const SizedBox(height: 20),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Image.asset('assets/images/appLogo.png', height: 100, width: 100),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: theme.cardColor,
+                  borderRadius: const BorderRadius.only(
+                    topRight: Radius.circular(20),
+                    bottomLeft: Radius.circular(20),
+                    bottomRight: Radius.circular(20),
+                    topLeft: Radius.circular(4),
+                  ),
+                  border: Border.all(color: theme.dividerColor),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.05),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Text(
+                  speech,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: theme.textTheme.bodyLarge?.color,
+                    height: 1.4,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 40),
+        content,
       ],
     );
   }
 
   Widget _buildTextField(
-    String label,
-    TextEditingController controller, {
-    bool isNumber = false,
+    ThemeData theme,
+    String hint,
+    TextEditingController controller,
+    IconData icon, {
     bool isObscure = false,
+    TextInputType? keyboardType,
   }) {
-    return TextField(
-      controller: controller,
-      keyboardType: isNumber ? TextInputType.number : TextInputType.text,
-      obscureText: isObscure,
-      decoration: InputDecoration(
-        labelText: label,
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-        filled: true,
-        fillColor: Theme.of(context).cardColor,
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: theme.dividerColor, width: 1.5),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: TextField(
+        controller: controller,
+        obscureText: isObscure,
+        keyboardType: keyboardType,
+        style: TextStyle(fontSize: 18, color: theme.textTheme.bodyLarge?.color),
+        decoration: InputDecoration(
+          border: InputBorder.none,
+          icon: Icon(icon, color: TailOColors.muted),
+          hintText: hint,
+          hintStyle: const TextStyle(color: TailOColors.muted),
+        ),
       ),
     );
   }
 
-  // --- ACTIONS ---
-
-  Future<void> _pickImage() async {
-    final picker = ImagePicker();
-    final image = await picker.pickImage(source: ImageSource.gallery);
-    if (image != null) setState(() => _selectedImage = File(image.path));
-  }
-
-  Future<void> _pickDate() async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _selectedDob,
-      firstDate: DateTime(2000),
-      lastDate: DateTime.now(),
+  Widget _buildDropdownField(
+    ThemeData theme,
+    String hint,
+    List<String> items,
+    IconData icon,
+  ) {
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: theme.dividerColor, width: 1.5),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: DropdownButtonFormField<String>(
+        value: _selectedBreed,
+        decoration: InputDecoration(
+          border: InputBorder.none,
+          icon: Icon(icon, color: TailOColors.muted),
+          hintText: hint,
+          hintStyle: const TextStyle(color: TailOColors.muted),
+        ),
+        dropdownColor: theme.cardColor,
+        style: TextStyle(fontSize: 18, color: theme.textTheme.bodyLarge?.color),
+        icon: const Icon(LucideIcons.chevronDown, color: TailOColors.muted),
+        items: items
+            .map(
+              (String value) =>
+                  DropdownMenuItem<String>(value: value, child: Text(value)),
+            )
+            .toList(),
+        onChanged: (newValue) => setState(() => _selectedBreed = newValue),
+      ),
     );
-    if (picked != null) setState(() => _selectedDob = picked);
   }
 
-  bool _isLastStep() {
-    if (widget.isAddingAnotherPet) return _currentStep == 1;
-    return _currentStep == 2;
-  }
-
-  void _onNext() {
-    if (_isLastStep()) {
-      _finishSetup();
-    } else {
-      setState(() => _currentStep++);
-    }
-  }
-
-  void _finishSetup() async {
-    setState(() => _isLoading = true);
-
-    try {
-      // 1. Save Owner Info (Only if new user)
-      if (!widget.isAddingAnotherPet) {
-        await DataService().setUserInfo(
-          name: _ownerNameController.text.trim(),
-          email: _ownerEmailController.text.trim(),
-          password: _passwordController.text.trim(),
-        );
-      }
-
-      // 2. Create Pet Object
-      final newPet = Pet(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        name: _nameController.text.trim(),
-        type: _selectedType.name,
-        breed: _breedController.text.trim(),
-        gender: _selectedGender,
-        weight: double.tryParse(_weightController.text) ?? 0.0,
-        dob: _selectedDob,
-        image: _selectedImage?.path ?? 'assets/images/appLogo.png',
-        isConnected: false,
-      );
-
-      // 3. Save Pet
-      await DataService().addPet(newPet);
-
-      // 4. Set Login State
-      await DataService().setLoginState(true);
-
-      if (mounted) {
-        Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(builder: (_) => const MainScaffold()),
-          (route) => false,
-        );
-      }
-    } catch (e) {
-      debugPrint("Error: $e");
-      setState(() => _isLoading = false);
-    }
+  Widget _buildSelectableCard(
+    ThemeData theme,
+    String label,
+    IconData icon,
+    bool isSelected,
+    VoidCallback onTap,
+  ) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(vertical: 24),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? TailOColors.coral.withOpacity(0.1)
+              : theme.cardColor,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isSelected ? TailOColors.coral : theme.dividerColor,
+            width: isSelected ? 2 : 1,
+          ),
+        ),
+        child: Column(
+          children: [
+            Icon(
+              icon,
+              size: 40,
+              color: isSelected ? TailOColors.coral : TailOColors.muted,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: isSelected
+                    ? TailOColors.coral
+                    : theme.textTheme.bodyLarge?.color,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
-
-// Simple Enum for local UI state
-enum PetType { dog, cat }

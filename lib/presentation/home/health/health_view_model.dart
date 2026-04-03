@@ -1,14 +1,12 @@
 import 'package:flutter/foundation.dart';
-import '../../../core/services/pet_service.dart';
+import '../../../core/services/data_service.dart';
 import '../../../core/services/health_service.dart';
 import '../../../data/models/pet_model.dart';
 
 class HealthViewModel extends ChangeNotifier {
-  final PetService _petService;
+  HealthViewModel();
 
-  HealthViewModel(this._petService);
-
-  Pet get activePet => _petService.activePet;
+  Pet get activePet => DataService().activePet;
 
   Future<void> logVital(
     String type,
@@ -23,7 +21,8 @@ class HealthViewModel extends ChangeNotifier {
       unit: unit,
       currentWeight: activePet.weight,
     );
-    await _petService.addMedicalRecord(activePet.id, record);
+
+    await DataService().addMedicalRecord(activePet.id, record);
     notifyListeners();
   }
 }
