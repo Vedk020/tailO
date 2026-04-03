@@ -1,14 +1,16 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
-// ✅ FIXED IMPORTS
 import '../../../core/theme/colors.dart';
 import '../../../core/services/data_service.dart';
 import '../../../core/widgets/brand_footer.dart';
 import '../../auth/signup/signup_flow.dart';
 import '../../reminders/reminders_page.dart';
-import 'widgets/device_scanner_sheet.dart'; // ✅ NEW SCANNER
+import 'widgets/device_scanner_sheet.dart';
+import 'widgets/live_map_card.dart'; // ✅ Import the real map card
 
 class OverviewPage extends StatefulWidget {
   const OverviewPage({super.key});
@@ -18,7 +20,16 @@ class OverviewPage extends StatefulWidget {
 }
 
 class _OverviewPageState extends State<OverviewPage> {
-  // --- TRIGGER NEW SCANNER PAGE ---
+  // ✅ Map state
+  late final MapController _mapController;
+  bool _isRefreshing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _mapController = MapController();
+  }
+
   void _pairDevice(String petId) {
     showModalBottomSheet(
       context: context,
@@ -26,6 +37,17 @@ class _OverviewPageState extends State<OverviewPage> {
       backgroundColor: Colors.transparent,
       builder: (ctx) => DeviceScannerSheet(petId: petId),
     );
+  }
+
+  // ✅ Refresh: re-fetch owner position and recenter map
+  Future<void> _refreshLocation() async {
+    setState(() => _isRefreshing = true);
+    await DataService().refreshOwnerPosition();
+    final pet = DataService().activePet;
+    if (pet.lat != 0.0 && pet.lng != 0.0) {
+      _mapController.move(LatLng(pet.lat, pet.lng), 15.0);
+    }
+    setState(() => _isRefreshing = false);
   }
 
   @override
@@ -108,6 +130,19 @@ class _OverviewPageState extends State<OverviewPage> {
         // --- NORMAL STATE ---
         final activePet = DataService().activePet;
 
+        // ✅ Build pet location — fallback to 0,0 if no GPS yet
+        final petLocation = LatLng(
+          activePet.lat != 0.0 ? activePet.lat : 0.0001,
+          activePet.lng != 0.0 ? activePet.lng : 0.0001,
+        );
+        final hasGps = activePet.isConnected && activePet.lat != 0.0;
+
+        // ✅ Distance from DataService
+        final distanceMeters = DataService().calculateDistance(
+          activePet.lat,
+          activePet.lng,
+        );
+
         return SingleChildScrollView(
           physics: const BouncingScrollPhysics(),
           child: Column(
@@ -120,8 +155,8 @@ class _OverviewPageState extends State<OverviewPage> {
                   scrollDirection: Axis.horizontal,
                   child: Row(
                     children: [
-                      ...pets.map((pet) {
-                        return Padding(
+                      ...pets.map(
+                        (pet) => Padding(
                           padding: const EdgeInsets.only(right: 20),
                           child: _buildPetAvatar(
                             context,
@@ -132,8 +167,8 @@ class _OverviewPageState extends State<OverviewPage> {
                             isConnected: pet.isConnected,
                             onTap: () => DataService().switchPet(pet.id),
                           ),
-                        );
-                      }),
+                        ),
+                      ),
                       _buildAddPetButton(context),
                     ],
                   ),
@@ -257,125 +292,36 @@ class _OverviewPageState extends State<OverviewPage> {
                 padding: const EdgeInsets.symmetric(horizontal: 20.0),
                 child: Column(
                   children: [
-                    // Live Location Map
-                    Container(
-                      height: 170,
-                      width: double.infinity,
-                      decoration: BoxDecoration(
-                        color: theme.cardColor,
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                          color: theme.dividerColor,
-                          width: 0.5,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(isDark ? 0.4 : 0.1),
-                            blurRadius: 20,
-                            spreadRadius: 2,
-                            offset: const Offset(0, 8),
-                          ),
-                        ],
+                    // ✅ REAL LIVE MAP CARD
+                    LiveMapCard(
+                      activePet: activePet,
+                      petLocation: petLocation,
+                      isLiveLocation: hasGps,
+                      isRefreshing: _isRefreshing,
+                      mapController: _mapController,
+                      distanceMeters: distanceMeters,
+                      onRefreshLocation: _refreshLocation,
+                      onGetDirections: () => DataService().navigateToPet(
+                        activePet.lat,
+                        activePet.lng,
                       ),
-                      child: Stack(
-                        children: [
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(20),
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: theme.cardColor,
-                                image: DecorationImage(
-                                  image: const NetworkImage(
-                                    "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ec/World_map_blank_without_borders.svg/2000px-World_map_blank_without_borders.svg.png",
-                                  ),
-                                  fit: BoxFit.cover,
-                                  opacity: 0.3,
-                                  colorFilter: ColorFilter.mode(
-                                    Colors.black.withOpacity(
-                                      isDark ? 0.5 : 0.2,
-                                    ),
-                                    BlendMode.darken,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                          Center(
-                            child: Stack(
-                              alignment: Alignment.center,
-                              children: [
-                                if (activePet.isConnected)
-                                  Container(
-                                    height: 70,
-                                    width: 70,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      border: Border.all(
-                                        color: TailOColors.coral.withOpacity(
-                                          0.3,
-                                        ),
-                                        width: 1.5,
-                                      ),
-                                    ),
-                                  ),
-                                Container(
-                                  height: 48,
-                                  width: 48,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                      color: TailOColors.coral,
-                                      width: 2.5,
-                                    ),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: TailOColors.coral.withOpacity(
-                                          0.6,
-                                        ),
-                                        blurRadius: 16,
-                                        spreadRadius: 4,
-                                      ),
-                                    ],
-                                  ),
-                                  child: CircleAvatar(
-                                    backgroundColor: Colors.transparent,
-                                    backgroundImage:
-                                        DataService.getImageProvider(
-                                          activePet.image,
-                                        ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const Positioned(
-                            bottom: 14,
-                            left: 16,
-                            child: Text(
-                              "Live Location",
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w500,
-                                color: Color(0xFFAAAAAE),
-                              ),
-                            ),
-                          ),
-                        ],
+                      onShareLocation: () => DataService().sharePetLocation(
+                        activePet.lat,
+                        activePet.lng,
+                        activePet.name,
                       ),
                     ),
 
                     const SizedBox(height: 16),
 
-                    // ================= DYNAMIC REMINDERS CARD =================
+                    // ================= REMINDERS CARD =================
                     GestureDetector(
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => const RemindersPage(),
-                          ),
-                        );
-                      },
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const RemindersPage(),
+                        ),
+                      ),
                       child: Container(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 20,
@@ -464,6 +410,7 @@ class _OverviewPageState extends State<OverviewPage> {
                             ),
                       ),
                     ),
+
                     const SizedBox(height: 16),
                     const Padding(
                       padding: EdgeInsets.symmetric(horizontal: 20.0),
@@ -654,7 +601,7 @@ class BatteryIndicator extends StatelessWidget {
           child: Align(
             alignment: Alignment.centerLeft,
             child: FractionallySizedBox(
-              widthFactor: battery,
+              widthFactor: battery.clamp(0.0, 1.0),
               child: Container(
                 decoration: BoxDecoration(
                   color: Colors.white,
@@ -666,7 +613,7 @@ class BatteryIndicator extends StatelessWidget {
         ),
         const SizedBox(height: 6),
         Text(
-          "${(battery * 100).round()} %",
+          "${(battery * 100).round()}%",
           style: TextStyle(
             fontSize: 13,
             fontWeight: FontWeight.w500,

@@ -12,18 +12,12 @@ import 'presentation/home/tips/tips_page.dart';
 import 'presentation/home/profile/profile_page.dart';
 import 'presentation/home/community/community_page.dart';
 import 'presentation/settings/settings_page.dart';
+import 'bootstrap/dependency_injection.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  try {
-    // Initialize DataService (Singleton)
-    // This loads cache, user info, and login state before app starts
-    await DataService().init();
-  } catch (e) {
-    debugPrint("Error loading data: $e");
-  }
-
+  await setupDependencies();
+  await DataService().init();
   runApp(const TailOApp());
 }
 

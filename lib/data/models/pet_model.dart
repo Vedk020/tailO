@@ -1,27 +1,31 @@
 import 'package:flutter/foundation.dart';
 
 // ------------------------------------------------------
-// 🐾 PET MODEL (Strictly Typed)
+// 🐾 PET MODEL
 // ------------------------------------------------------
 class Pet {
   final String id;
   final String name;
-  final String type; // 'dog', 'cat'
+  final String type;
   final String breed;
   final String gender;
-  final double weight; // Changed to double (kg)
+  final double weight;
   final DateTime dob;
   final String image;
 
   // Connection State
   final bool isConnected;
-  final double battery; // 0.0 to 1.0
+  final double battery;
 
-  // Health Stats (Strict Types)
-  final int heartRate; // bpm
-  final int steps; // count
-  final int calories; // kcal
-  final int spo2; // percentage
+  // Health Stats
+  final int heartRate;
+  final int steps;
+  final int calories;
+  final int spo2;
+
+  // ✅ GPS Coordinates from ESP32
+  final double lat;
+  final double lng;
 
   final List<MedicalRecord> medicalRecords;
 
@@ -40,6 +44,8 @@ class Pet {
     this.steps = 0,
     this.calories = 0,
     this.spo2 = 0,
+    this.lat = 0.0, // ✅ Default safe value
+    this.lng = 0.0, // ✅ Default safe value
     this.medicalRecords = const [],
   });
 
@@ -60,6 +66,8 @@ class Pet {
       steps: json['steps'] as int? ?? 0,
       calories: json['calories'] as int? ?? 0,
       spo2: json['spo2'] as int? ?? 0,
+      lat: (json['lat'] as num?)?.toDouble() ?? 0.0, // ✅
+      lng: (json['lng'] as num?)?.toDouble() ?? 0.0, // ✅
       medicalRecords:
           (json['medicalRecords'] as List<dynamic>?)
               ?.map((e) => MedicalRecord.fromJson(e as Map<String, dynamic>))
@@ -85,11 +93,13 @@ class Pet {
       'steps': steps,
       'calories': calories,
       'spo2': spo2,
+      'lat': lat, // ✅
+      'lng': lng, // ✅
       'medicalRecords': medicalRecords.map((e) => e.toJson()).toList(),
     };
   }
 
-  // --- COPY WITH (Immutability Helper) ---
+  // --- COPY WITH ---
   Pet copyWith({
     String? name,
     String? type,
@@ -104,10 +114,12 @@ class Pet {
     int? steps,
     int? calories,
     int? spo2,
+    double? lat, // ✅
+    double? lng, // ✅
     List<MedicalRecord>? medicalRecords,
   }) {
     return Pet(
-      id: id, // ID never changes
+      id: id,
       name: name ?? this.name,
       type: type ?? this.type,
       breed: breed ?? this.breed,
@@ -121,6 +133,8 @@ class Pet {
       steps: steps ?? this.steps,
       calories: calories ?? this.calories,
       spo2: spo2 ?? this.spo2,
+      lat: lat ?? this.lat, // ✅
+      lng: lng ?? this.lng, // ✅
       medicalRecords: medicalRecords ?? this.medicalRecords,
     );
   }
@@ -131,10 +145,10 @@ class Pet {
 // ------------------------------------------------------
 class MedicalRecord {
   final String id;
-  final String type; // Vet, Vaccine, Illness
+  final String type;
   final String title;
   final DateTime date;
-  final double? weightSnapshot; // Weight at time of record
+  final double? weightSnapshot;
   final String? notes;
   final String? attachmentPath;
 
@@ -172,5 +186,3 @@ class MedicalRecord {
     };
   }
 }
-
-// ------------------------------------------------------

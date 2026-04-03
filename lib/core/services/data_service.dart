@@ -2,13 +2,16 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../data/models/pet_model.dart';
 import '../../data/models/community_post.dart';
-import 'esp32_service.dart'; // ✅ Brought back ESP32
-import '../../bootstrap/dependency_injection.dart'; // To access sl
+import 'esp32_service.dart';
+import '../../bootstrap/dependency_injection.dart';
 
 class DataService {
   static final DataService _instance = DataService._internal();
@@ -22,17 +25,17 @@ class DataService {
   String _ownerPassword = "TAILO-GUEST-ACCESS-KEY";
   String _ownerImage = "assets/images/pfp.jpeg";
 
-  // ✅ Brought back Hardware Service
-  late final Esp32Service _esp32;
+  final Esp32Service _esp32 = sl<Esp32Service>();
 
   // --- GLOBAL STATE ---
   final ValueNotifier<String?> selectedPetIdNotifier = ValueNotifier(null);
   final ValueNotifier<List<Map<String, dynamic>>> remindersNotifier =
       ValueNotifier([]);
   final ValueNotifier<List<CommunityPost>> postsNotifier = ValueNotifier([]);
-
-  // ✅ Brought back Login Notifier (Fixes main.dart Error)
   final ValueNotifier<bool> isLoggedInNotifier = ValueNotifier(false);
+
+  // ✅ Owner's live position (fetched once on connect for distance calc)
+  Position? _ownerPosition;
 
   // --- GETTERS ---
   List<Pet> get pets => _pets;
@@ -50,15 +53,17 @@ class DataService {
         type: 'dog',
         breed: '',
         gender: '',
-        weight: 0.0, // ✅ Fixed: double instead of String
+        weight: 0.0,
         dob: DateTime.now(),
         image: 'assets/images/appLogo.png',
-        battery: 1.0, // ✅ Added missing fields
+        battery: 0.0,
         heartRate: 0,
         steps: 0,
         calories: 0,
         spo2: 0,
         isConnected: false,
+        lat: 0.0,
+        lng: 0.0,
       );
     }
     return _pets.firstWhere(
@@ -67,7 +72,6 @@ class DataService {
     );
   }
 
-  // --- HELPER: GET IMAGE PROVIDER ---
   static ImageProvider getImageProvider(String path) {
     if (path.startsWith('http')) return NetworkImage(path);
     if (path.startsWith('assets')) return AssetImage(path);
@@ -84,10 +88,34 @@ class DataService {
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
     _isLoggedIn = prefs.getBool(_loginKey) ?? false;
-    isLoggedInNotifier.value = _isLoggedIn; // ✅ Sync notifier
+    isLoggedInNotifier.value = _isLoggedIn;
 
-    // Init Hardware
-    _esp32 = sl<Esp32Service>();
+    // ✅ Connection change callback
+    _esp32.onConnectionChanged = (isConnected) {
+      if (selectedPetIdNotifier.value != null) {
+        setPetConnection(selectedPetIdNotifier.value!, isConnected);
+      }
+    };
+
+    // ✅ Live sensor + GPS data callback (6 params)
+    _esp32.onDataReceived = (hr, spo2, steps, battery, lat, lng) {
+      if (selectedPetIdNotifier.value != null) {
+        final id = selectedPetIdNotifier.value!;
+        final index = _pets.indexWhere((p) => p.id == id);
+        if (index != -1) {
+          final old = _pets[index];
+          _pets[index] = old.copyWith(
+            heartRate: hr,
+            spo2: spo2,
+            steps: steps,
+            battery: battery,
+            lat: lat,
+            lng: lng,
+          );
+          selectedPetIdNotifier.notifyListeners();
+        }
+      }
+    };
 
     // Load User
     final userInfo = prefs.getStringList(_userKey);
@@ -142,9 +170,63 @@ class DataService {
     }
   }
 
-  // --- HARDWARE ACTIONS (Fixes UI Errors) ---
-  void connectHardware() => _esp32.startAlphaTesting();
+  // --- HARDWARE ACTIONS ---
+  void connectHardware() {
+    _fetchOwnerPosition(); // ✅ Grab owner GPS when connecting
+    _esp32.startAlphaTesting();
+  }
+
   void disconnectHardware() => _esp32.stopAlphaTesting();
+
+  // ✅ Silently fetch owner's position for distance calculation
+  Future<void> _fetchOwnerPosition() async {
+    try {
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) return;
+
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) return;
+      }
+
+      _ownerPosition = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+    } catch (e) {
+      debugPrint("Could not get owner location: $e");
+    }
+  }
+
+  // ✅ Returns distance in meters, null if owner location unavailable
+  double? calculateDistance(double petLat, double petLng) {
+    if (_ownerPosition == null) return null;
+    return Geolocator.distanceBetween(
+      _ownerPosition!.latitude,
+      _ownerPosition!.longitude,
+      petLat,
+      petLng,
+    );
+  }
+
+  // ✅ Opens Google Maps walking navigation to pet
+  Future<void> navigateToPet(double lat, double lng) async {
+    final uri = Uri.parse(
+      'https://www.google.com/maps/dir/?api=1&destination=$lat,$lng&travelmode=walking',
+    );
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+
+  // ✅ Shares a Google Maps link to the pet's location
+  Future<void> sharePetLocation(double lat, double lng, String petName) async {
+    final link = 'https://www.google.com/maps/search/?api=1&query=$lat,$lng';
+    await Share.share(
+      'Find $petName here: $link',
+      subject: "$petName's Live Location",
+    );
+  }
 
   // --- USER ACTIONS ---
   Future<void> setUserInfo({
@@ -180,11 +262,10 @@ class DataService {
   Future<void> setLoginState(bool status) async {
     final prefs = await SharedPreferences.getInstance();
     _isLoggedIn = status;
-    isLoggedInNotifier.value = status; // ✅ Sync notifier
+    isLoggedInNotifier.value = status;
     await prefs.setBool(_loginKey, status);
   }
 
-  // --- LOGOUT ACTION ---
   Future<void> logout() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_loginKey);
@@ -198,6 +279,7 @@ class DataService {
     _ownerEmail = "handler@tailo.com";
     _ownerPassword = "";
     _ownerImage = "assets/images/pfp.jpeg";
+    _ownerPosition = null;
 
     _pets.clear();
     selectedPetIdNotifier.value = null;
@@ -205,21 +287,23 @@ class DataService {
   }
 
   // --- COMMUNITY ACTIONS ---
-  // ... (Your Community Post methods remain exactly the same here)
   void addPost(String content, {String? image}) {
-    final newPost = CommunityPost(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      author: _ownerName,
-      timestamp: DateTime.now(),
-      content: content,
-      postImage: image,
-      likes: 0,
-      comments: 0,
-      isLiked: false,
-    );
-    postsNotifier.value = [newPost, ...postsNotifier.value];
+    postsNotifier.value = [
+      CommunityPost(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        author: _ownerName,
+        timestamp: DateTime.now(),
+        content: content,
+        postImage: image,
+        likes: 0,
+        comments: 0,
+        isLiked: false,
+      ),
+      ...postsNotifier.value,
+    ];
   }
 
+  Future<void> refreshOwnerPosition() => _fetchOwnerPosition();
   void togglePostLike(String postId) {
     final currentPosts = List<CommunityPost>.from(postsNotifier.value);
     final index = currentPosts.indexWhere((p) => p.id == postId);
@@ -263,7 +347,6 @@ class DataService {
     final index = _pets.indexWhere((p) => p.id == petId);
     if (index != -1) {
       _pets[index].medicalRecords.insert(0, record);
-      // ✅ Removed the weight logic here that was causing the MedicalRecord errors
       await _savePets();
       selectedPetIdNotifier.notifyListeners();
     }
@@ -297,24 +380,7 @@ class DataService {
   Future<void> setPetConnection(String petId, bool status) async {
     final index = _pets.indexWhere((p) => p.id == petId);
     if (index != -1) {
-      final old = _pets[index];
-      _pets[index] = Pet(
-        id: old.id,
-        name: old.name,
-        type: old.type,
-        breed: old.breed,
-        gender: old.gender,
-        weight: old.weight,
-        dob: old.dob,
-        image: old.image,
-        isConnected: status,
-        battery: old.battery,
-        heartRate: old.heartRate,
-        steps: old.steps,
-        calories: old.calories,
-        spo2: old.spo2,
-        medicalRecords: old.medicalRecords,
-      );
+      _pets[index] = _pets[index].copyWith(isConnected: status);
       await _savePets();
       selectedPetIdNotifier.notifyListeners();
     }
@@ -388,33 +454,36 @@ class DataService {
     }
     if (_pets.isNotEmpty) return;
 
-    final rex = Pet(
-      id: "#12450",
-      name: "Rex",
-      type: "dog",
-      breed: "Golden Retriever",
-      gender: "Male",
-      weight: 30.0, // ✅ Fixed: Double
-      dob: DateTime.now().subtract(const Duration(days: 365 * 3)),
-      image: "assets/images/appLogo.png",
-      isConnected: true,
-      battery: 0.69,
-      heartRate: 78, // ✅ Fixed: Int
-      steps: 6240, // ✅ Fixed: Int
-      calories: 410, // ✅ Fixed: Int
-      spo2: 98, // ✅ Fixed: Int
-      medicalRecords: [
-        MedicalRecord(
-          id: "1",
-          type: "Vet",
-          title: "Annual Checkup",
-          date: DateTime.now().subtract(const Duration(days: 120)),
-          notes: "Healthy, slightly active.",
-        ),
-      ],
+    _pets.add(
+      Pet(
+        id: "#12450",
+        name: "Rex",
+        type: "dog",
+        breed: "Golden Retriever",
+        gender: "Male",
+        weight: 30.0,
+        dob: DateTime.now().subtract(const Duration(days: 365 * 3)),
+        image: "assets/images/appLogo.png",
+        isConnected: false,
+        battery: 0.0,
+        heartRate: 0,
+        steps: 0,
+        calories: 0,
+        spo2: 0,
+        lat: 0.0,
+        lng: 0.0, // ✅
+        medicalRecords: [
+          MedicalRecord(
+            id: "1",
+            type: "Vet",
+            title: "Annual Checkup",
+            date: DateTime.now().subtract(const Duration(days: 120)),
+            notes: "Healthy, slightly active.",
+          ),
+        ],
+      ),
     );
 
-    _pets.addAll([rex]);
     selectedPetIdNotifier.value = _pets.first.id;
     await _savePets();
   }
